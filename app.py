@@ -1,6 +1,27 @@
 import streamlit as st
 import time
 
+def analyze_excuse(excuse: str):
+    """
+    사용자 핑계를 분석하고
+    (evidence, message, can_exercise)를 반환
+    """
+    if "비" in excuse:
+        evidence = "📊 오늘 강수 확률: 20%"
+        message = "❌ 비 핑계는 성립하지 않습니다. 👉 야외 운동 가능합니다."
+        return evidence, message, True
+
+    elif "피곤" in excuse:
+        evidence = "📊 어제 수면 시간: 7.2시간"
+        message = "❌ 피곤하다는 주장은 근거가 부족합니다. 👉 가벼운 운동 추천"
+        return evidence, message, True
+
+    else:
+        evidence = "📊 특이 사항 없음"
+        message = "🤔 새로운 핑계지만, 운동은 가능합니다."
+        return evidence, message, True
+
+
 st.title("No Excuses AI Agent")
 st.write("데이터 기반 핑계 격파 운동 코치")
 
@@ -9,24 +30,10 @@ excuse = st.text_input("오늘 운동 못 하는 이유를 말해보세요")
 if excuse:
     st.subheader("AI 분석 결과")
 
-    can_exercise = False
+    evidence, message, can_exercise = analyze_excuse(excuse)
 
-    if "비" in excuse:
-        st.write("📊 오늘 강수 확률: 20%")
-        st.write("❌ 비 핑계는 성립하지 않습니다.")
-        st.success("👉 야외 운동 가능합니다.")
-        can_exercise = True
-
-    elif "피곤" in excuse:
-        st.write("📊 어제 수면 시간: 7.2시간")
-        st.write("❌ 피곤하다는 주장은 근거가 부족합니다.")
-        st.success("👉 가벼운 운동 추천")
-        can_exercise = True
-
-    else:
-        st.write("🤔 새로운 핑계군요.")
-        st.success("👉 그래도 운동은 가능합니다.")
-        can_exercise = True
+    st.write(evidence)
+    st.success(message)
 
     if can_exercise:
         if st.button("🏃 지금 운동 시작하기"):
