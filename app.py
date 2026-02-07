@@ -15,6 +15,17 @@ EXCUSE_POLICY = {
     "other": "DEFAULT_PUSH"
 }
 
+# 요일 매핑 (datetime.weekday() → 한글)
+WEEKDAY_MAP = {
+    0: "월",
+    1: "화",
+    2: "수",
+    3: "목",
+    4: "금",
+    5: "토",
+    6: "일"
+}
+
 # -----------------------
 # session_state 초기화
 # -----------------------
@@ -77,10 +88,12 @@ else:
     st.divider()
 
     # -----------------------
-    # 현재 시각 계산
+    # 현재 시각 / 요일 계산
     # -----------------------
     now = datetime.now()
     today = date.today()
+    today_weekday = WEEKDAY_MAP[now.weekday()]
+    is_exercise_day = today_weekday in plan["days"]
 
     exercise_time_today = datetime.strptime(
         f"{today} {plan['time']}",
@@ -88,9 +101,18 @@ else:
     )
 
     # -----------------------
-    # 3️⃣ 운동 시간이 지났고, 아직 체크 안 했다면
+    # 3️⃣ 운동 요일이 아닌 경우
     # -----------------------
-    if now >= exercise_time_today and st.session_state.last_check_date != today:
+    if not is_exercise_day:
+        st.info(
+            f"📌 오늘은 **운동 요일이 아니에요 ({today_weekday})**.\n\n"
+            "오늘은 운동 여부를 체크하지 않습니다."
+        )
+
+    # -----------------------
+    # 4️⃣ 운동 요일 + 운동 시간이 지났고, 아직 체크 안 한 경우
+    # -----------------------
+    elif now >= exercise_time_today and st.session_state.last_check_date != today:
         st.warning("⏰ 오늘 운동 시간이에요!")
 
         did_exercise = st.radio(
@@ -103,8 +125,6 @@ else:
             st.session_state.last_check_date = today
 
         elif did_exercise == "못 했어요":
-            st.session_state.last_check_date = today
-
             st.subheader("❓ 왜 못 하셨나요?")
             excuse = st.text_input("이유를 입력해주세요")
 
@@ -112,6 +132,8 @@ else:
                 st.subheader("AI 분석 결과")
 
                 result = classify_excuse(excuse)
+                st.session_state.last_check_date = today
+
                 excuse_type = result["excuse_type"]
                 policy = EXCUSE_POLICY.get(excuse_type, "DEFAULT_PUSH")
 
@@ -121,27 +143,33 @@ else:
                 st.write("🔍 확신도:", round(result["confidence"], 2))
 
                 # -----------------------
-                # 4️⃣ 정책 기반 개입
+                # 5️⃣ 정책 기반 개입
                 # -----------------------
                 if policy == "WEATHER_CHECK":
-                    st.info("🌦️ 날씨 확인 결과 → 실내 운동 제안")
+                    st.info("🌦️ 날씨 고려 → 실내 운동을 추천해요.")
 
                 elif policy == "TIME_CHECK":
-                    st.info("⏰ 일정 분석 → 다른 시간대 추천")
+                    st.info("⏰ 일정 분석 → 다른 시간대로 조정해볼까요?")
 
                 elif policy == "LOW_INTENSITY":
-                    st.info("😮‍💨 컨디션 고려 → 가벼운 운동 추천")
+                    st.info("😮‍💨 컨디션 고려 → 가벼운 운동은 어떠세요?")
 
                 elif policy == "SAFE_SKIP":
-                    st.warning("🩺 건강 사유 인정 → 오늘은 휴식")
+                    st.warning("🩺 건강 사유 인정 → 오늘은 휴식이 우선이에요.")
 
                 else:
-                    st.success("💥 핑계 반박 — 운동 가능")
+                    st.success("💥 할 수 있어요. 짧게라도 시작해볼까요?")
 
                     if st.button("🏃 지금 운동 시작하기"):
                         with st.spinner("운동 중..."):
                             time.sleep(3)
-                        st.success("🎉 운동 완료! 잘했어요.")
+                        st.success("🎉 운동 완료! 정말 잘했어요.")
 
+    # -----------------------
+    # 5️⃣ 운동 요일이지만 아직 시간이 안 됐거나 이미 체크한 경우
+    # -----------------------
     else:
-        st.info("📌 아직 운동 시간이 아니거나, 오늘은 이미 체크했어요.")
+        if st.session_state.last_check_date == today:
+            st.info("✅ 오늘 운동 여부는 이미 기록했어요.")
+        else:
+            st.info("⏳ 아직 운동 시간이 아니에요.")

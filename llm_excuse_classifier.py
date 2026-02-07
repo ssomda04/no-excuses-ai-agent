@@ -21,7 +21,7 @@ prompt = ChatPromptTemplate.from_messages([
 사용자의 발화를 보고 아래 JSON 형식으로만 응답하라.
 
 {{
-  "excuse_type": "weather | fatigue | time | motivation | unknown",
+  "excuse_type": "weather | time | energy | emotion | health | other ",
   "validity": true | false,
   "confidence": 0.0 ~ 1.0,
   "reason": "판단 근거 요약"
