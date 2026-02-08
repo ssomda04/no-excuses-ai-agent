@@ -1,20 +1,19 @@
 import streamlit as st
-import time
 from datetime import datetime, date
-from llm_excuse_classifier import classify_excuse
-from weather import get_weather, analyze_weather
 from dotenv import load_dotenv
+
+from llm_excuse_classifier import classify_excuse
+from weather import get_weather
 
 load_dotenv()
 
-
-# -----------------------
-# 정책 매핑
-# -----------------------
+# =======================
+# 정책 매핑 (🔥 energy 정합성 수정)
+# =======================
 EXCUSE_POLICY = {
     "weather": "WEATHER_CHECK",
     "time": "TIME_CHECK",
-    "fatigue": "LOW_INTENSITY",
+    "energy": "LOW_INTENSITY",
     "emotion": "MOTIVATION_PUSH",
     "health": "SAFE_SKIP",
     "other": "NEUTRAL_REFLECT"
@@ -30,9 +29,9 @@ WEEKDAY_MAP = {
     6: "일"
 }
 
-# -----------------------
-# session_state 초기화
-# -----------------------
+# =======================
+# Session State 초기화
+# =======================
 if "onboarded" not in st.session_state:
     st.session_state.onboarded = False
 
@@ -42,9 +41,44 @@ if "user" not in st.session_state:
 if "last_check_date" not in st.session_state:
     st.session_state.last_check_date = None
 
-# -----------------------
+
+# =======================
+# 날씨 요약 함수
+# =======================
+def get_weather_summary(city="Seoul"):
+    """
+    실제 날씨 사실 기반 판단
+    (사용자 발화와 분리)
+    """
+    data = get_weather(city)
+
+    weather_main = data["weather"][0]["main"].lower()
+    weather_desc = data["weather"][0]["description"]
+    temp = data["main"]["temp"]
+
+    bad_weather_keywords = ["rain", "snow", "thunderstorm"]
+    is_bad_weather = any(k in weather_main for k in bad_weather_keywords)
+
+    if temp <= 0:
+        is_bad_weather = True
+        reason = "기온이 매우 낮아 야외 운동이 부담스러워요."
+    elif is_bad_weather:
+        reason = "비나 눈 등으로 야외 운동이 어려워요."
+    else:
+        reason = "날씨는 운동을 방해할 정도는 아니에요."
+
+    return {
+        "condition": "bad" if is_bad_weather else "good",
+        "weather": weather_desc,
+        "temp": temp,
+        "reason": reason,
+        "suggestion": "실내 스트레칭" if is_bad_weather else "가벼운 야외 걷기"
+    }
+
+
+# =======================
 # UI
-# -----------------------
+# =======================
 st.title("No Excuses AI Agent")
 st.write("데이터 기반 핑계 격파 운동 코치")
 
@@ -101,13 +135,10 @@ else:
     # 운동 요일 아님
     # -----------------------
     if not is_exercise_day:
-        st.info(
-            f"📌 오늘은 운동 요일이 아니에요 ({today_weekday}).\n\n"
-            "오늘은 휴식일이에요."
-        )
+        st.info(f"📌 오늘은 운동 요일이 아니에요 ({today_weekday}). 휴식일이에요.")
 
     # -----------------------
-    # 운동 요일 + 시간 지남 + 아직 체크 안함
+    # 운동 시간 지남 + 미체크
     # -----------------------
     elif now >= exercise_time_today and st.session_state.last_check_date != today:
         st.warning("⏰ 오늘 운동 시간이에요!")
@@ -125,7 +156,8 @@ else:
             excuse = st.text_input("❓ 왜 못 하셨나요?")
 
             if excuse:
-                st.subheader("AI 분석 결과")
+                st.subheader("🧠 AI 분석 결과")
+
                 result = classify_excuse(excuse)
 
                 excuse_type = result["excuse_type"]
@@ -139,46 +171,80 @@ else:
                 st.write("🔍 확신도:", round(confidence, 2))
                 st.write("🧠 판단 근거:", reason)
                 st.write("🤖 적용 정책:", policy)
-
                 st.divider()
 
                 # -----------------------
-                # 정책별 개입
+                # WEATHER_CHECK
                 # -----------------------
                 if policy == "WEATHER_CHECK":
                     try:
-                        weather_data = get_weather()
-                        weather_result = analyze_weather(weather_data)
+                        weather = get_weather_summary()
 
-                        st.info(
-                            f"🌤️ 오늘 날씨 분석 결과: {weather_result['reason']}\n\n"
-                            f"👉 추천: {weather_result['suggestion']}"
-                        )
+                        st.subheader("🌤️ 실제 날씨 분석")
 
-                        if weather_result["condition"] == "good":
-                            st.success("💪 날씨는 문제 없어요. 짧게라도 시작해볼까요?")
+                        # 🔹 사용자 인식 (LLM)
+                        st.write("🧠 AI 인식:")
+                        st.write("→ 날씨를 운동을 막는 주요 이유로 인식했어요.")
+
+                        # 🔹 객관적 사실 (API)
+                        st.write("🌍 실제 날씨:")
+                        st.write(f"- 상태: {weather['weather']}")
+                        st.write(f"- 기온: {weather['temp']}°C")
+                        st.write(f"- 판단: {weather['reason']}")
+
+                        st.divider()
+
+                        if weather["condition"] == "bad":
+                            st.success(
+                                "오늘은 실제로도 날씨가 좋지 않아요.\n\n"
+                                "👉 날씨 때문에 운동하기 어려웠다는 판단이 타당해 보여요."
+                            )
+                            st.info(f"🏠 추천: {weather['suggestion']}")
                         else:
-                            st.warning("🏠 오늘은 실내 운동이 더 좋아 보여요.")
+                            st.warning(
+                                "실제 날씨는 운동을 막을 정도는 아니에요."
+                            )
+
+                            if confidence < 0.6:
+                                st.info(
+                                    "🤔 핑계에 대한 확신도는 높지 않아요.\n\n"
+                                    "5분만 가볍게 시작해보는 건 어떨까요?"
+                                )
+                            else:
+                                st.info("💪 짧은 스트레칭이라도 해볼까요?")
 
                     except Exception as e:
-                        st.error(f"⚠️ 날씨 정보를 불러오지 못했어요.{e}")
+                        st.error(f"⚠️ 날씨 정보를 불러오지 못했어요. {e}")
 
-                elif policy == "TIME_CHECK":
-                    st.info("⏰ 다른 시간대로 옮기는 건 어떠세요?")
-
+                # -----------------------
+                # ENERGY
+                # -----------------------
                 elif policy == "LOW_INTENSITY":
-                    st.info("😮‍💨 컨디션이 낮은 날이에요. 5분 스트레칭도 충분해요.")
-
-                elif policy == "SAFE_SKIP":
-                    st.warning("🩺 오늘은 휴식이 더 중요해 보여요.")
-
-                elif policy == "NEUTRAL_REFLECT":
                     st.info(
-                        "오늘은 쉬었지만, 내일을 위해 컨디션을 정리해볼까요?"
+                        "😮‍💨 에너지가 낮은 날이에요.\n\n"
+                        "5분 스트레칭이나 호흡 운동만 해도 충분해요."
+                    )
+
+                # -----------------------
+                # HEALTH
+                # -----------------------
+                elif policy == "SAFE_SKIP":
+                    st.warning(
+                        "🩺 건강 문제는 최우선이에요.\n\n"
+                        "오늘은 과감히 쉬는 것도 좋은 선택이에요."
+                    )
+
+                # -----------------------
+                # 기타
+                # -----------------------
+                else:
+                    st.info(
+                        "오늘은 쉬었지만,\n\n"
+                        "내일을 위해 컨디션을 정리해볼까요?"
                     )
 
     # -----------------------
-    # 운동 요일이지만 아직 시간 전 or 이미 체크
+    # 아직 시간 전 / 이미 체크
     # -----------------------
     else:
         if st.session_state.last_check_date == today:
