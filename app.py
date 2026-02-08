@@ -2,20 +2,24 @@ import streamlit as st
 import time
 from datetime import datetime, date
 from llm_excuse_classifier import classify_excuse
+from weather import get_weather, analyze_weather
+from dotenv import load_dotenv
+
+load_dotenv()
+
 
 # -----------------------
-# 상수 / 정책 매핑
+# 정책 매핑
 # -----------------------
 EXCUSE_POLICY = {
     "weather": "WEATHER_CHECK",
     "time": "TIME_CHECK",
-    "energy": "LOW_INTENSITY",
+    "fatigue": "LOW_INTENSITY",
     "emotion": "MOTIVATION_PUSH",
     "health": "SAFE_SKIP",
-    "other": "DEFAULT_PUSH"
+    "other": "NEUTRAL_REFLECT"
 }
 
-# 요일 매핑 (datetime.weekday() → 한글)
 WEEKDAY_MAP = {
     0: "월",
     1: "화",
@@ -35,23 +39,22 @@ if "onboarded" not in st.session_state:
 if "user" not in st.session_state:
     st.session_state.user = {}
 
-# 오늘 운동 여부를 이미 물어봤는지 기록
 if "last_check_date" not in st.session_state:
     st.session_state.last_check_date = None
 
 # -----------------------
-# UI 시작
+# UI
 # -----------------------
 st.title("No Excuses AI Agent")
 st.write("데이터 기반 핑계 격파 운동 코치")
 
-# -----------------------
+# =======================
 # 1️⃣ 온보딩
-# -----------------------
+# =======================
 if not st.session_state.onboarded:
     st.subheader("👤 사용자 정보 입력")
 
-    name = st.text_input("이름 (필수)")
+    name = st.text_input("이름")
     days = st.multiselect(
         "운동 요일",
         ["월", "화", "수", "목", "금", "토", "일"]
@@ -72,24 +75,18 @@ if not st.session_state.onboarded:
             st.session_state.onboarded = True
             st.rerun()
 
-# -----------------------
+# =======================
 # 2️⃣ 메인 로직
-# -----------------------
+# =======================
 else:
     user = st.session_state.user
     plan = user["plan"]
 
     st.subheader(f"💪 {user['name']}님의 운동 플랜")
-    st.write(f"""
-    - 📅 요일: {', '.join(plan['days'])}
-    - ⏰ 시간: {plan['time']}
-    """)
-
+    st.write(f"- 📅 요일: {', '.join(plan['days'])}")
+    st.write(f"- ⏰ 시간: {plan['time']}")
     st.divider()
 
-    # -----------------------
-    # 현재 시각 / 요일 계산
-    # -----------------------
     now = datetime.now()
     today = date.today()
     today_weekday = WEEKDAY_MAP[now.weekday()]
@@ -101,16 +98,16 @@ else:
     )
 
     # -----------------------
-    # 3️⃣ 운동 요일이 아닌 경우
+    # 운동 요일 아님
     # -----------------------
     if not is_exercise_day:
         st.info(
-            f"📌 오늘은 **운동 요일이 아니에요 ({today_weekday})**.\n\n"
-            "오늘은 운동 여부를 체크하지 않습니다."
+            f"📌 오늘은 운동 요일이 아니에요 ({today_weekday}).\n\n"
+            "오늘은 휴식일이에요."
         )
 
     # -----------------------
-    # 4️⃣ 운동 요일 + 운동 시간이 지났고, 아직 체크 안 한 경우
+    # 운동 요일 + 시간 지남 + 아직 체크 안함
     # -----------------------
     elif now >= exercise_time_today and st.session_state.last_check_date != today:
         st.warning("⏰ 오늘 운동 시간이에요!")
@@ -121,52 +118,67 @@ else:
         )
 
         if did_exercise == "했어요":
-            st.success("🔥 최고예요! 오늘 운동 완료로 기록할게요.")
+            st.success("🔥 오늘 운동 완료! 잘하셨어요.")
             st.session_state.last_check_date = today
 
         elif did_exercise == "못 했어요":
-            st.subheader("❓ 왜 못 하셨나요?")
-            excuse = st.text_input("이유를 입력해주세요")
+            excuse = st.text_input("❓ 왜 못 하셨나요?")
 
             if excuse:
                 st.subheader("AI 분석 결과")
-
                 result = classify_excuse(excuse)
-                st.session_state.last_check_date = today
 
                 excuse_type = result["excuse_type"]
-                policy = EXCUSE_POLICY.get(excuse_type, "DEFAULT_PUSH")
+                confidence = result["confidence"]
+                reason = result["reason"]
 
-                st.write("🤖 적용된 Agent 정책:", policy)
+                policy = EXCUSE_POLICY.get(excuse_type, "NEUTRAL_REFLECT")
+                st.session_state.last_check_date = today
+
                 st.write("📌 핑계 유형:", excuse_type)
-                st.write("🧠 판단 근거:", result["reason"])
-                st.write("🔍 확신도:", round(result["confidence"], 2))
+                st.write("🔍 확신도:", round(confidence, 2))
+                st.write("🧠 판단 근거:", reason)
+                st.write("🤖 적용 정책:", policy)
+
+                st.divider()
 
                 # -----------------------
-                # 5️⃣ 정책 기반 개입
+                # 정책별 개입
                 # -----------------------
                 if policy == "WEATHER_CHECK":
-                    st.info("🌦️ 날씨 고려 → 실내 운동을 추천해요.")
+                    try:
+                        weather_data = get_weather()
+                        weather_result = analyze_weather(weather_data)
+
+                        st.info(
+                            f"🌤️ 오늘 날씨 분석 결과: {weather_result['reason']}\n\n"
+                            f"👉 추천: {weather_result['suggestion']}"
+                        )
+
+                        if weather_result["condition"] == "good":
+                            st.success("💪 날씨는 문제 없어요. 짧게라도 시작해볼까요?")
+                        else:
+                            st.warning("🏠 오늘은 실내 운동이 더 좋아 보여요.")
+
+                    except Exception as e:
+                        st.error(f"⚠️ 날씨 정보를 불러오지 못했어요.{e}")
 
                 elif policy == "TIME_CHECK":
-                    st.info("⏰ 일정 분석 → 다른 시간대로 조정해볼까요?")
+                    st.info("⏰ 다른 시간대로 옮기는 건 어떠세요?")
 
                 elif policy == "LOW_INTENSITY":
-                    st.info("😮‍💨 컨디션 고려 → 가벼운 운동은 어떠세요?")
+                    st.info("😮‍💨 컨디션이 낮은 날이에요. 5분 스트레칭도 충분해요.")
 
                 elif policy == "SAFE_SKIP":
-                    st.warning("🩺 건강 사유 인정 → 오늘은 휴식이 우선이에요.")
+                    st.warning("🩺 오늘은 휴식이 더 중요해 보여요.")
 
-                else:
-                    st.success("💥 할 수 있어요. 짧게라도 시작해볼까요?")
-
-                    if st.button("🏃 지금 운동 시작하기"):
-                        with st.spinner("운동 중..."):
-                            time.sleep(3)
-                        st.success("🎉 운동 완료! 정말 잘했어요.")
+                elif policy == "NEUTRAL_REFLECT":
+                    st.info(
+                        "오늘은 쉬었지만, 내일을 위해 컨디션을 정리해볼까요?"
+                    )
 
     # -----------------------
-    # 5️⃣ 운동 요일이지만 아직 시간이 안 됐거나 이미 체크한 경우
+    # 운동 요일이지만 아직 시간 전 or 이미 체크
     # -----------------------
     else:
         if st.session_state.last_check_date == today:
