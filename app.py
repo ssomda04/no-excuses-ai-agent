@@ -2,8 +2,8 @@ import streamlit as st
 from datetime import datetime, date
 from dotenv import load_dotenv
 
-from llm_excuse_classifier import classify_excuse
-from weather import get_weather
+from services.classifier import classify_excuse
+from services.weather import get_weather
 
 load_dotenv()
 
