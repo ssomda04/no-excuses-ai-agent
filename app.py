@@ -1,5 +1,5 @@
 import streamlit as st
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from dotenv import load_dotenv
 
 from services.classifier import classify_excuse
@@ -122,7 +122,7 @@ def evaluate_weather_excuse(user_excuse_text, weather_fact):
     return {"valid": True, "reason": "neutral_weather"}
 
 
-def evaluate_time_excuse(exercise_time_str: str, excuse_text: str):
+def evaluate_time_excuse(exercise_time_str: str, duration_minutes: int, excuse_text: str):
     """
     사용자가 '시간 없어서' 핑계를 댔을 때 캘린더 확인
     """
@@ -144,7 +144,11 @@ def evaluate_time_excuse(exercise_time_str: str, excuse_text: str):
         # 운동 시간 파싱
         ex_hour, ex_min = map(int, exercise_time_str.split(':'))
         exercise_start = time_obj(ex_hour, ex_min)
-        exercise_end = time_obj((ex_hour + 1) % 24, ex_min)
+        exercise_end_time = datetime.strptime(
+            f"1970-01-01 {exercise_time_str}",
+            "%Y-%m-%d %H:%M"
+        ) + timedelta(minutes=duration_minutes)
+        exercise_end = exercise_end_time.time()
 
         # 오늘 이벤트만 필터링
         today_str = date.today().isoformat()
@@ -164,8 +168,8 @@ def evaluate_time_excuse(exercise_time_str: str, excuse_text: str):
             else:  # date 형식만 있으면 전일 일정
                 return {"valid": True, "reason": "has_all_day_event"}
 
-            # 겹침 판정 (1시간 운동 기준)
-            if exercise_start <= ev_time < exercise_end:
+            # 겹침 판정 (운동 구간과 이벤트 구간 비교)
+            if exercise_start <= ev_time <= exercise_end:
                 return {"valid": True, "reason": "schedule_conflict"}
 
         # 겹치는 일정 없음 -> 거짓 핑계
@@ -215,24 +219,51 @@ if not st.session_state.onboarded:
     st.subheader("👤 사용자 정보 입력")
 
     name = st.text_input("이름")
-    days = st.multiselect("운동 요일", ["월", "화", "수", "목", "금", "토", "일"])
-    exercise_time = st.time_input("운동 시간")
+    selected_days = st.multiselect("운동 요일", ["월", "화", "수", "목", "금", "토", "일"])
+
+    # 요일별 운동 시간 설정
+    schedules = {}
+    if selected_days:
+        st.subheader("⏰ 요일별 운동 시간 설정")
+        for day in selected_days:
+            with st.expander(f"📅 {day}요일"):
+                col1, col2 = st.columns(2)
+                with col1:
+                    start_time = st.time_input(
+                        f"{day} 시작시간",
+                        value=datetime.strptime("07:00", "%H:%M").time(),
+                        key=f"start_{day}"
+                    )
+                with col2:
+                    duration = st.slider(
+                        f"{day} 지속시간 (분)",
+                        min_value=10,
+                        max_value=180,
+                        value=60,
+                        step=10,
+                        key=f"duration_{day}"
+                    )
+                schedules[day] = {
+                    "start_time": start_time.strftime("%H:%M"),
+                    "duration": duration
+                }
 
     if st.button("저장하고 시작하기"):
-        if not name or not days:
+        if not name or not selected_days:
             st.warning("이름과 운동 요일은 필수입니다.")
         else:
+            # session state 저장
             st.session_state.user = {
                 "name": name,
                 "plan": {
-                    "days": days,
-                    "time": exercise_time.strftime("%H:%M")
+                    "days": selected_days,
+                    "schedules": schedules
                 }
             }
-            # persist user and schedules
+            # DB 저장
             user_id = db.ensure_user(name)
             st.session_state.user["id"] = user_id
-            db.set_schedules(user_id, days, exercise_time.strftime("%H:%M"))
+            db.set_schedules(user_id, schedules)
             st.session_state.onboarded = True
             st.rerun()
 
@@ -245,7 +276,11 @@ else:
 
     st.subheader(f"💪 {user['name']}님의 운동 플랜")
     st.write(f"- 📅 요일: {', '.join(plan['days'])}")
-    st.write(f"- ⏰ 시간: {plan['time']}")
+    
+    # 요일별 스케줄 표시
+    schedules = plan.get("schedules", {})
+    for day, sched in schedules.items():
+        st.write(f"  - {day}: {sched['start_time']} ({sched['duration']}분)")
     st.divider()
 
     now = datetime.now()
@@ -253,20 +288,31 @@ else:
     today_weekday = WEEKDAY_MAP[now.weekday()]
     is_exercise_day = today_weekday in plan["days"]
 
-    exercise_time_today = datetime.strptime(
-        f"{today} {plan['time']}",
-        "%Y-%m-%d %H:%M"
-    )
+    # 오늘의 운동 스케줄 가져오기
+    today_schedule = schedules.get(today_weekday, None)
 
     if not is_exercise_day:
         st.info(f"📌 오늘은 운동 요일이 아니에요 ({today_weekday}).")
 
-    elif now >= exercise_time_today and st.session_state.last_check_date != today:
-        st.warning("⏰ 오늘 운동 시간이에요!")
+    elif today_schedule is None:
+        st.warning(f"⚠️ 오늘({today_weekday})의 운동 스케줄이 없습니다.")
 
-        did_exercise = st.radio(
-            "오늘 운동 하셨나요?",
-            ["선택", "했어요", "못 했어요"]
+    else:
+        today_start_time_str = today_schedule["start_time"]
+        today_duration = today_schedule["duration"]
+
+        exercise_time_today = datetime.strptime(
+            f"{today} {today_start_time_str}",
+            "%Y-%m-%d %H:%M"
+        )
+        exercise_end_time_today = exercise_time_today + timedelta(minutes=today_duration)
+
+        if now >= exercise_time_today and st.session_state.last_check_date != today:
+            st.warning("⏰ 오늘 운동 시간이에요!")
+
+            did_exercise = st.radio(
+                "오늘 운동 하셨나요?",
+                ["선택", "했어요", "못 했어요"]
         )
 
         if did_exercise == "했어요":
@@ -351,7 +397,7 @@ else:
                 # TIME_CHECK: 캘린더 기반 일정 확인
                 # =======================
                 elif policy == "TIME_CHECK":
-                    time_eval = evaluate_time_excuse(plan['time'], excuse)
+                    time_eval = evaluate_time_excuse(today_start_time_str, today_duration, excuse)
 
                     if time_eval["valid"] is None:
                         # 캘린더 연동 불가 또는 시간 관련 핑계 아님
@@ -382,8 +428,8 @@ else:
                     st.info("오늘을 돌아보고 내일을 준비해볼까요?")
                     db.add_excuse_log(log_id, excuse, excuse_type, confidence, reason, policy, "neutral")
 
-    else:
-        if st.session_state.last_check_date == today:
-            st.info("✅ 오늘 운동 여부는 이미 기록했어요.")
         else:
-            st.info("⏳ 아직 운동 시간이 아니에요.")
+            if st.session_state.last_check_date == today:
+                st.info("✅ 오늘 운동 여부는 이미 기록했어요.")
+            else:
+                st.info("⏳ 아직 운동 시간이 아니에요.")

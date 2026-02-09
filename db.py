@@ -30,7 +30,8 @@ def init_db():
         id INTEGER PRIMARY KEY,
         user_id INTEGER,
         day_of_week INTEGER,
-        exercise_time TEXT,
+        start_time TEXT,
+        duration_minutes INTEGER,
         FOREIGN KEY(user_id) REFERENCES users(id)
     )
     """
@@ -86,19 +87,30 @@ def ensure_user(name: str) -> int:
     return user_id
 
 
-def set_schedules(user_id: int, days: List[str], exercise_time: str):
-    # days expect Korean short names e.g. '월','화' -> map to 0..6
+def set_schedules(user_id: int, schedules: dict):
+    """
+    schedules = {
+        "월": {"start_time": "07:00", "duration": 60},
+        "화": {"start_time": "07:00", "duration": 60},
+        ...
+    }
+    """
     day_map = {"월": 0, "화": 1, "수": 2, "목": 3, "금": 4, "토": 5, "일": 6}
     conn = _connect()
     cur = conn.cursor()
     cur.execute("DELETE FROM exercise_schedules WHERE user_id = ?", (user_id,))
-    for d in days:
-        dow = day_map.get(d)
+    
+    for day_str, sched in schedules.items():
+        dow = day_map.get(day_str)
         if dow is None:
             continue
+        
+        start_time = sched.get("start_time", "07:00")
+        duration = sched.get("duration", 60)
+        
         cur.execute(
-            "INSERT INTO exercise_schedules (user_id, day_of_week, exercise_time) VALUES (?, ?, ?)",
-            (user_id, dow, exercise_time),
+            "INSERT INTO exercise_schedules (user_id, day_of_week, start_time, duration_minutes) VALUES (?, ?, ?, ?)",
+            (user_id, dow, start_time, duration),
         )
     conn.commit()
     conn.close()
