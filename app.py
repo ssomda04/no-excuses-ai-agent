@@ -120,6 +120,61 @@ def evaluate_weather_excuse(user_excuse_text, weather_fact):
         return {"valid": True, "reason": "actual_bad_weather"}
 
     return {"valid": True, "reason": "neutral_weather"}
+
+
+def evaluate_time_excuse(exercise_time_str: str, excuse_text: str):
+    """
+    사용자가 '시간 없어서' 핑계를 댔을 때 캘린더 확인
+    """
+    from services.calendar import list_upcoming_events
+    from datetime import time as time_obj
+
+    text = excuse_text.lower()
+
+    # 시간 관련 키워드
+    TIME_KEYWORDS = ["시간", "바쁘", "바빴", "일정", "일이", "약속", "time", "busy", "schedule"]
+
+    if not any(kw in text for kw in TIME_KEYWORDS):
+        return {"valid": None, "reason": "not_time_related"}
+
+    try:
+        # 캘린더 이벤트 조회
+        events = list_upcoming_events()
+
+        # 운동 시간 파싱
+        ex_hour, ex_min = map(int, exercise_time_str.split(':'))
+        exercise_start = time_obj(ex_hour, ex_min)
+        exercise_end = time_obj((ex_hour + 1) % 24, ex_min)
+
+        # 오늘 이벤트만 필터링
+        today_str = date.today().isoformat()
+
+        for ev in events:
+            start = ev.get('start', '')
+            if today_str not in str(start):
+                continue
+
+            # 이벤트 시간 파싱
+            if 'T' in str(start):  # dateTime 형식
+                try:
+                    ev_datetime = datetime.fromisoformat(start.replace('Z', '+00:00'))
+                    ev_time = ev_datetime.time()
+                except:
+                    continue
+            else:  # date 형식만 있으면 전일 일정
+                return {"valid": True, "reason": "has_all_day_event"}
+
+            # 겹침 판정 (1시간 운동 기준)
+            if exercise_start <= ev_time < exercise_end:
+                return {"valid": True, "reason": "schedule_conflict"}
+
+        # 겹치는 일정 없음 -> 거짓 핑계
+        return {"valid": False, "reason": "claimed_time_but_no_conflict"}
+
+    except Exception as e:
+        # 캘린더 연동 실패시 판단 불가
+        st.warning(f"⚠️ 캘린더 확인 불가: {str(e)}")
+        return {"valid": None, "reason": "calendar_unavailable"}
     # ❌ 비 온다 했는데 실제로 안 옴 → 거짓 핑계
     if claimed_rain and not weather_fact["rain"]:
         return {
@@ -291,6 +346,29 @@ else:
                         )
                         st.success("🏠 추천: 실내 스트레칭 10분")
                         db.add_excuse_log(log_id, excuse, excuse_type, confidence, reason, policy, eval_result.get("reason"))
+
+                # =======================
+                # TIME_CHECK: 캘린더 기반 일정 확인
+                # =======================
+                elif policy == "TIME_CHECK":
+                    time_eval = evaluate_time_excuse(plan['time'], excuse)
+
+                    if time_eval["valid"] is None:
+                        # 캘린더 연동 불가 또는 시간 관련 핑계 아님
+                        st.warning("⏰ 일정 확인이 불가능하거나 시간 관련 사유가 아닙니다.")
+                        db.add_excuse_log(log_id, excuse, excuse_type, confidence, reason, policy, "inconclusive")
+
+                    elif time_eval["valid"]:
+                        # 실제 일정 충돌 있음 -> 인정
+                        st.info("📅 캘린더에 일정이 있었네요. 바쁜 하루였겠어요.")
+                        st.success("🕐 다른 시간대에 운동을 해볼까요? 또는 내일을 기대해요!")
+                        db.add_excuse_log(log_id, excuse, excuse_type, confidence, reason, policy, time_eval.get("reason"))
+
+                    else:
+                        # 일정 충돌 없음 -> 거짓 핑계
+                        st.error("❌ 운동 시간에 캘린더 일정이 없습니다.\n\n시간이 충분하셨을 것 같아요.")
+                        st.success("👉 이 핑계는 일정으로는 정당화되기 어려워요.\n\n운동하러 가볼까요?")
+                        db.add_excuse_log(log_id, excuse, excuse_type, confidence, reason, policy, "claimed_time_but_no_conflict")
 
                 elif policy == "LOW_INTENSITY":
                     st.info("😮‍💨 컨디션이 낮은 날이에요. 5분만 움직여도 충분해요.")
