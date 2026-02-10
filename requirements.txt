@@ -1,5 +1,14 @@
 streamlit
 python-dotenv
+
+# LLM
+langchain
+langchain-openai
+openai
+
+# Schema / validation
+pydantic>=2.6,<3.0
+
+# Data / utils
 requests
 pandas
-pydantic>=2.6,<3.0 
