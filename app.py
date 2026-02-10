@@ -31,10 +31,7 @@ db.init_db()
 EXCUSE_POLICY = {
     "weather": "WEATHER_CHECK",
     "time": "TIME_CHECK",
-    "energy": "LOW_INTENSITY",
-    "fatigue": "LOW_INTENSITY",
-    "emotion": "MOTIVATION_PUSH",
-    "health": "SAFE_SKIP",
+    "condition": "LOW_INTENSITY",
     "other": "NEUTRAL_REFLECT"
 }
 
@@ -162,33 +159,58 @@ def evaluate_time_excuse(exercise_time_str: str, duration_minutes: int, excuse_t
         # 운동 시간 파싱
         ex_hour, ex_min = map(int, exercise_time_str.split(':'))
         exercise_start = time_obj(ex_hour, ex_min)
-        exercise_end_time = datetime.strptime(
-            f"1970-01-01 {exercise_time_str}",
-            "%Y-%m-%d %H:%M"
-        ) + timedelta(minutes=duration_minutes)
-        exercise_end = exercise_end_time.time()
+        today_date = date.today()
+        exercise_start_dt = datetime.combine(today_date, exercise_start)
+        exercise_end_dt = exercise_start_dt + timedelta(minutes=duration_minutes)
+        exercise_end = exercise_end_dt.time()
 
         # 오늘 이벤트만 필터링
         today_str = date.today().isoformat()
 
+        latest_conflict_end = None
+
+        def _parse_event_dt(value: str) -> datetime:
+            dt = datetime.fromisoformat(value.replace('Z', '+00:00'))
+            if dt.tzinfo is not None:
+                dt = dt.astimezone().replace(tzinfo=None)
+            return dt
+
         for ev in events:
             start = ev.get('start', '')
+            end = ev.get('end', '')
             if today_str not in str(start):
                 continue
 
             # 이벤트 시간 파싱
             if 'T' in str(start):  # dateTime 형식
                 try:
-                    ev_datetime = datetime.fromisoformat(start.replace('Z', '+00:00'))
-                    ev_time = ev_datetime.time()
+                    ev_start_dt = _parse_event_dt(str(start))
+                    ev_end_dt = _parse_event_dt(str(end)) if end else ev_start_dt
+                    ev_time = ev_start_dt.time()
                 except:
                     continue
             else:  # date 형식만 있으면 전일 일정
                 return {"valid": True, "reason": "has_all_day_event"}
 
             # 겹침 판정 (운동 구간과 이벤트 구간 비교)
-            if exercise_start <= ev_time <= exercise_end:
-                return {"valid": True, "reason": "schedule_conflict"}
+            if ev_start_dt <= exercise_end_dt and ev_end_dt >= exercise_start_dt:
+                if latest_conflict_end is None or ev_end_dt > latest_conflict_end:
+                    latest_conflict_end = ev_end_dt
+
+        if latest_conflict_end is not None:
+            # 30분 단위로 올림
+            minute = latest_conflict_end.minute
+            add_minutes = (30 - (minute % 30)) % 30
+            suggested_start_dt = (latest_conflict_end + timedelta(minutes=add_minutes)).replace(second=0, microsecond=0)
+            suggested_end_dt = suggested_start_dt + timedelta(minutes=duration_minutes)
+            if suggested_end_dt.date() == today_date:
+                return {
+                    "valid": True,
+                    "reason": "schedule_conflict",
+                    "suggested_start": suggested_start_dt.strftime("%H:%M"),
+                    "suggested_end": suggested_end_dt.strftime("%H:%M"),
+                }
+            return {"valid": True, "reason": "schedule_conflict"}
 
         # 겹치는 일정 없음 -> 거짓 핑계
         return {"valid": False, "reason": "claimed_time_but_no_conflict"}
@@ -329,6 +351,7 @@ if not st.session_state.onboarded:
                 schedules=schedules,
                 goal=goal,
             )
+            st.session_state.plan_eval_status = st.session_state.plan_eval_result.get("status")
             st.session_state.plan_eval_shown = False
             st.session_state.onboarded = True
             st.rerun()
@@ -354,15 +377,15 @@ else:
     if plan_eval and not st.session_state.get("plan_eval_shown", False):
         st.subheader("AI 운동 계획 진단")
         status = plan_eval.get("status")
-        summary = plan_eval.get("summary", "")
-        suggestion = plan_eval.get("suggestion", "")
+        reason = plan_eval.get("reason", "")
+        action = plan_eval.get("action", "")
 
         coach_lines = {
             "insufficient": "조금만 보완하면 훨씬 탄탄한 계획이 될 수 있어요.",
             "adequate": "지금 계획은 좋은 균형을 갖추고 있어요.",
             "excessive": "열정이 느껴지는 계획이에요. 페이스를 조절해도 좋아요.",
         }
-        message = f"{coach_lines.get(status, '')}\n\n{summary}\n\n{suggestion}"
+        message = f"{coach_lines.get(status, '')}\n\n{reason}\n\n{action}"
 
         if status == "adequate":
             st.success(message)
@@ -373,6 +396,15 @@ else:
 
         st.session_state.plan_eval_shown = True
         st.session_state.pop("plan_eval_result", None)
+
+    # 계획이 부족/과할 때만 수정 버튼 노출 (진단 출력 후에도 유지)
+    if st.session_state.get("plan_eval_status") in ("insufficient", "excessive"):
+        if st.button("계획 수정하러 가기"):
+            st.session_state.onboarded = False
+            st.session_state.plan_eval_shown = False
+            st.session_state.pop("plan_eval_result", None)
+            st.session_state.pop("plan_eval_status", None)
+            st.rerun()
 
     # 탭 메뉴
     tab1, tab2 = st.tabs(["🏋️ 오늘의 운동", "📊 운동 기록"])
@@ -567,7 +599,14 @@ else:
 
                 elif time_eval["valid"]:
                     st.info("📅 캘린더에 일정이 있었네요. 바쁜 하루였겠어요.")
-                    st.success("🕐 다른 시간대에 운동을 해볼까요? 또는 내일을 기대해요!")
+                    suggested_start = time_eval.get("suggested_start")
+                    suggested_end = time_eval.get("suggested_end")
+                    if suggested_start and suggested_end:
+                        st.success(
+                            f"🕐 오늘 {suggested_start} 이후에 {duration_min}분 정도 운동하는 건 어떨까요? (예: {suggested_start}~{suggested_end})"
+                        )
+                    else:
+                        st.success("🕐 오늘 일정이 끝난 뒤, 같은 날 늦은 시간에 가볍게 움직여보는 건 어떨까요?")
                     exc_row_id, insight_shown = persist_excuse_and_maybe_show_insight(
                         log_id,
                         excuse_text,
@@ -595,11 +634,12 @@ else:
                         insight_shown,
                     )
 
-            # LOW_INTENSITY -> 수면 데이터 기반 판단
+            # LOW_INTENSITY -> 수면 데이터 기반 판단 (컨디션/체력/피곤함)
             elif policy == "LOW_INTENSITY":
                 sleep_eval = evaluate_sleep_excuse(user_id, excuse_text)
                 if sleep_eval["valid"] is None:
                     st.info("컨디션 관련 사유로 보이나, 수면 데이터가 부족해 판단할 수 없습니다.")
+                    st.success("오늘은 몸 상태를 우선해 휴식하거나, 저강도로 짧게 움직여보세요.")
                     show_indoor_links()
                     exc_row_id, insight_shown = persist_excuse_and_maybe_show_insight(
                         log_id,
@@ -613,8 +653,8 @@ else:
                         insight_shown,
                     )
                 elif sleep_eval["valid"]:
-                    st.info(f"😴 최근 평균 수면이 낮습니다 ({sleep_eval.get('avg_hours'):.1f}시간). 오늘은 저강도로 시작해도 괜찮아요.")
-                    st.success("추천: 저강도 10분 스트레칭")
+                    st.info(f"😴 최근 평균 수면이 낮습니다 ({sleep_eval.get('avg_hours'):.1f}시간).")
+                    st.success("오늘은 휴식을 택하거나, 저강도로 10분만 움직여보는 것도 좋아요.")
                     show_indoor_links()
                     exc_row_id, insight_shown = persist_excuse_and_maybe_show_insight(
                         log_id,
@@ -628,7 +668,8 @@ else:
                         insight_shown,
                     )
                 else:
-                    st.error(f"❌ 수면 데이터로는 피로로 보기 어렵습니다 (평균 {sleep_eval.get('avg_hours'):.1f}시간). 잠깐 몸을 움직여볼까요?")
+                    st.info(f"수면 데이터 기준으로는 컨디션이 무리하지 않아도 되는 수준이에요 (평균 {sleep_eval.get('avg_hours'):.1f}시간).")
+                    st.success("가벼운 운동으로 기분 전환해볼까요?")
                     exc_row_id, insight_shown = persist_excuse_and_maybe_show_insight(
                         log_id,
                         excuse_text,
@@ -640,20 +681,6 @@ else:
                         insight,
                         insight_shown,
                     )
-
-            elif policy == "SAFE_SKIP":
-                st.warning("🩺 건강 문제는 최우선이에요. 오늘은 쉬세요.")
-                exc_row_id, insight_shown = persist_excuse_and_maybe_show_insight(
-                    log_id,
-                    excuse_text,
-                    excuse_type,
-                    confidence,
-                    reason,
-                    policy,
-                    "safe_skip",
-                    insight,
-                    insight_shown,
-                )
 
             else:
                 st.info("오늘을 돌아보고 내일을 준비해볼까요?")

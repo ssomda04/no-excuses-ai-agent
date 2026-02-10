@@ -132,6 +132,21 @@ def render_calendar_view(user_id: int, user_name: str, plan_days: list):
     total_days = len(exercise_logs)
     completed_days = sum(1 for log in exercise_logs if log[1] == 1)
     excuse_days = sum(1 for log in exercise_logs if log[1] == 0)
+
+    # 목표 운동 일자(계획 요일) 대비 성공률 계산
+    planned_days = 0
+    planned_completed = 0
+    for week in cal:
+        for day_idx, day in enumerate(week):
+            if day == 0:
+                continue
+            weekday_name = WEEKDAY_NAMES[day_idx]
+            if weekday_name not in plan_days:
+                continue
+            planned_days += 1
+            date_str = f"{selected_year:04d}-{selected_month:02d}-{day:02d}"
+            if exercise_dict.get(date_str) == 1:
+                planned_completed += 1
     
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -139,8 +154,8 @@ def render_calendar_view(user_id: int, user_name: str, plan_days: list):
     with col2:
         st.metric("❌ 핑계", excuse_days)
     with col3:
-        if total_days > 0:
-            success_rate = (completed_days / total_days) * 100
+        if planned_days > 0:
+            success_rate = (planned_completed / planned_days) * 100
             st.metric("성공률", f"{success_rate:.1f}%")
         else:
             st.metric("성공률", "N/A")

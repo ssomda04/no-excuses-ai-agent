@@ -31,6 +31,13 @@ def init_db():
     """
     )
 
+    # 기존 DB에 컬럼이 없을 수 있으므로 보강
+    cur.execute("PRAGMA table_info(users)")
+    existing_cols = {row[1] for row in cur.fetchall()}
+    for col, col_type in [("height_cm", "REAL"), ("weight_kg", "REAL"), ("goal", "TEXT")]:
+        if col not in existing_cols:
+            cur.execute(f"ALTER TABLE users ADD COLUMN {col} {col_type}")
+
     cur.execute(
         """
     CREATE TABLE IF NOT EXISTS exercise_schedules (

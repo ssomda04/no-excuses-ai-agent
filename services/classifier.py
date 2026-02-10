@@ -13,7 +13,7 @@ from langchain_core.output_parsers import PydanticOutputParser
 # =======================
 class ExcuseAnalysis(BaseModel):
     excuse_type: Literal[
-        "weather", "time", "fatigue", "emotion", "health", "other"
+        "weather", "time", "condition", "other"
     ] = Field(description="핑계의 주된 원인 분류")
 
     weather_reason: Literal[
@@ -50,6 +50,7 @@ prompt = ChatPromptTemplate.from_messages([
 - 단어가 아니라 '의미' 기준으로 판단하라.
 - 같은 뜻의 다른 표현도 정확히 분류하라.
 - 날씨 핑계라면 어떤 날씨 요인인지 추론하라.
+- 시간 부족/일정 충돌은 time으로, 컨디션/체력/피곤함은 condition으로 분류하라.
 
 {format_instructions}
 """

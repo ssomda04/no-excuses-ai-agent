@@ -29,19 +29,28 @@ def evaluate_plan(
     # 기준 설정(코칭 관점, 의학적 아님)
     if num_days < 2 or total_minutes < 60:
         status = "insufficient"
-        summary = f"현재 주 {num_days}회, 총 {total_minutes}분 운동 계획이에요. 조금 더 자주, 혹은 시간을 늘려보면 어떨까요?"
-        suggestion = "일주일에 2~3회 이상, 90분 이상을 목표로 해보세요! 작은 변화가 큰 차이를 만듭니다."
+        reason = (
+            f"AI가 주당 빈도와 총 운동 시간을 기준으로 판단했습니다. "
+            f"현재 주 {num_days}회, 총 {total_minutes}분은 계획을 유지하기엔 다소 부족해 보여요."
+        )
+        action = "일주일에 2~3회 이상, 90분 이상을 목표로 해보세요! 작은 변화가 큰 차이를 만듭니다."
     elif num_days >= 6 or total_minutes >= 400:
         status = "excessive"
-        summary = f"주 {num_days}회, 총 {total_minutes}분으로 꽤 많은 운동을 계획하셨어요! 너무 무리하지 않도록 주의하세요."
-        suggestion = "충분한 휴식도 중요해요. 몸 상태를 보며 조절해보세요."
+        reason = (
+            f"AI가 주당 빈도와 총 운동 시간을 기준으로 판단했습니다. "
+            f"주 {num_days}회, 총 {total_minutes}분은 꽤 높은 편이에요."
+        )
+        action = "충분한 휴식도 중요해요. 몸 상태를 보며 페이스를 조절해보세요."
     else:
         status = "adequate"
-        summary = f"주 {num_days}회, 총 {total_minutes}분으로 균형 잡힌 운동 계획입니다!"
-        suggestion = "이대로 꾸준히 실천하면 좋은 변화를 경험할 수 있어요."
+        reason = (
+            f"AI가 주당 빈도와 총 운동 시간을 기준으로 판단했습니다. "
+            f"주 {num_days}회, 총 {total_minutes}분은 균형 잡힌 편이에요."
+        )
+        action = "이대로 꾸준히 실천하면 좋은 변화를 경험할 수 있어요."
 
     return {
         "status": status,
-        "summary": summary,
-        "suggestion": suggestion
+        "reason": reason,
+        "action": action
     }
