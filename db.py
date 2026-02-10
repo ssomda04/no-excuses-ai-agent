@@ -67,6 +67,20 @@ def init_db():
     """
     )
 
+    cur.execute(
+        """
+    CREATE TABLE IF NOT EXISTS sleep_logs (
+        id INTEGER PRIMARY KEY,
+        user_id INTEGER,
+        start TEXT,
+        end TEXT,
+        source TEXT,
+        created_at TEXT,
+        FOREIGN KEY(user_id) REFERENCES users(id)
+    )
+    """
+    )
+
     conn.commit()
     conn.close()
 
@@ -150,3 +164,29 @@ def add_excuse_log(log_id: int, raw_text: str, excuse_type: str, confidence: flo
     conn.commit()
     conn.close()
     return exc_id
+
+
+def add_sleep_log(user_id: int, start_iso: str, end_iso: str, source: str = "mock") -> int:
+    conn = _connect()
+    cur = conn.cursor()
+    now = datetime.utcnow().isoformat()
+    cur.execute(
+        "INSERT INTO sleep_logs (user_id, start, end, source, created_at) VALUES (?, ?, ?, ?, ?)",
+        (user_id, start_iso, end_iso, source, now),
+    )
+    sid = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return sid
+
+
+def get_recent_sleep_logs(user_id: int, limit: int = 10):
+    conn = _connect()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT id, start, end, source, created_at FROM sleep_logs WHERE user_id = ? ORDER BY created_at DESC LIMIT ?",
+        (user_id, limit),
+    )
+    rows = cur.fetchall()
+    conn.close()
+    return rows

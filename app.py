@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 from services.classifier import classify_excuse
 from services.weather import get_weather
 import db
+from services import fit
 
 load_dotenv()
 
@@ -290,6 +291,36 @@ else:
 
     # 오늘의 운동 스케줄 가져오기
     today_schedule = schedules.get(today_weekday, None)
+
+    # 수면 데이터 섹션
+    st.subheader("🛌 수면 데이터 (데모)")
+    col_a, col_b = st.columns(2)
+    with col_a:
+        uploaded = st.file_uploader("수면 CSV 업로드 (start,end)", type=["csv"]) 
+        if uploaded is not None:
+            parsed = fit.parse_sleep_csv(uploaded)
+            if parsed:
+                user_id = st.session_state.user.get("id") or db.ensure_user(st.session_state.user.get("name", "unknown"))
+                for s in parsed:
+                    db.add_sleep_log(user_id, s["start"], s["end"], source="upload")
+                st.success(f"{len(parsed)}개의 수면 레코드를 저장했습니다.")
+            else:
+                st.warning("CSV를 파싱할 수 없거나 형식이 맞지 않습니다.")
+    with col_b:
+        if st.button("샘플 수면 데이터 불러오기"):
+            sample = fit.generate_mock_sleep(7)
+            user_id = st.session_state.user.get("id") or db.ensure_user(st.session_state.user.get("name", "unknown"))
+            for s in sample:
+                db.add_sleep_log(user_id, s["start"], s["end"], source="mock")
+            st.success("샘플 수면데이터 7개가 저장되었습니다.")
+
+    # 최근 수면 레코드 표시
+    user_id = st.session_state.user.get("id") or db.ensure_user(st.session_state.user.get("name", "unknown"))
+    sleeps = db.get_recent_sleep_logs(user_id, limit=10)
+    if sleeps:
+        st.write("최근 수면 기록:")
+        for r in sleeps:
+            st.write(f"- {r[1]} → {r[2]} (src: {r[3]})")
 
     if not is_exercise_day:
         st.info(f"📌 오늘은 운동 요일이 아니에요 ({today_weekday}).")
