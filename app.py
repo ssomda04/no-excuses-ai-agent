@@ -22,6 +22,12 @@ from services.plan_evaluator import evaluate_plan
 
 load_dotenv()
 
+st.set_page_config(
+    page_title="No Excuses Coach",
+    layout="centered",
+    page_icon="🧭"
+)
+
 # DB 초기화
 db.init_db()
 
@@ -33,6 +39,13 @@ EXCUSE_POLICY = {
     "time": "TIME_CHECK",
     "condition": "LOW_INTENSITY",
     "other": "NEUTRAL_REFLECT"
+}
+
+EXCUSE_LABELS = {
+    "weather": "날씨",
+    "time": "시간 부족",
+    "condition": "컨디션",
+    "other": "기타",
 }
 
 WEEKDAY_MAP = {
@@ -59,6 +72,212 @@ if "user" not in st.session_state:
 
 if "last_check_date" not in st.session_state:
     st.session_state.last_check_date = None
+
+if st.query_params.get("home") == "1":
+    if st.session_state.user:
+        st.session_state.onboarded = True
+    else:
+        st.session_state.onboarded = False
+    st.query_params.clear()
+    st.rerun()
+
+
+def inject_global_styles():
+    st.markdown(
+        """
+        <style>
+        :root {
+            --bg: #f7f9fb;
+            --card: #ffffff;
+            --text: #111111;
+            --muted: #6b7280;
+            --accent: #1b64f2;
+            --soft: #e8f0ff;
+            --good: #1f7a5c;
+            --warn: #8a6a00;
+        }
+        .stApp {
+            background: #ffffff;
+            color: var(--text);
+        }
+        .stApp, .stMarkdown, .stText, .stCaption, label, .stRadio, .stCheckbox,
+        .stHeader, .stSubheader, .stTitle, .stMetric {
+            color: var(--text);
+        }
+        .stMarkdown p, .stMarkdown li, .stMarkdown div {
+            color: var(--text);
+        }
+        [data-testid="stMetricLabel"], [data-testid="stMetricValue"] {
+            color: var(--text) !important;
+        }
+        [data-testid="stExpander"] div[role="button"] {
+            color: #0f172a !important;
+        }
+        .block-container {
+            padding-top: 2rem;
+            max-width: 920px;
+        }
+        .page-title {
+            font-size: 28px;
+            font-weight: 800;
+            letter-spacing: -0.3px;
+            color: #111111;
+            margin-bottom: 4px;
+        }
+        .page-subtitle {
+            color: var(--muted);
+            font-size: 14px;
+            margin-bottom: 16px;
+        }
+        .decision-title {
+            font-size: 22px;
+            font-weight: 800;
+            color: #111111;
+            margin: 6px 0 6px;
+        }
+        .support-text {
+            color: var(--muted);
+            font-size: 14px;
+            margin-bottom: 12px;
+        }
+        .section-card {
+            background: #ffffff;
+            border: 1px solid #edf1f5;
+            border-radius: 14px;
+            padding: 16px 18px;
+        }
+        .card {
+            background: #ffffff;
+            border: 1px solid #eef2f6;
+            border-radius: 14px;
+            padding: 16px 18px;
+            box-shadow: 0 6px 16px rgba(17, 24, 39, 0.05);
+            margin-bottom: 0.75rem;
+        }
+        .card-title {
+            font-size: 16px;
+            font-weight: 700;
+            color: #0f172a;
+            margin-bottom: 6px;
+        }
+        .card-body {
+            color: #1f2937;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+        .cta-btn {
+            display: inline-block;
+            margin-top: 10px;
+            background: var(--accent);
+            color: #ffffff !important;
+            padding: 10px 16px;
+            border-radius: 10px;
+            text-decoration: none;
+            font-weight: 600;
+        }
+        div[data-testid="stContainer"] {
+            background: #ffffff;
+            border: 1px solid #eef2f6;
+            border-radius: 14px;
+            padding: 12px 14px;
+            box-shadow: 0 4px 12px rgba(17, 24, 39, 0.04);
+        }
+        .stExpanderHeader {
+            color: #111111;
+            font-weight: 700;
+            font-size: 15px;
+            background: #ffffff;
+            border: 1px solid #e5e7eb;
+            border-radius: 10px;
+            padding: 10px 12px;
+        }
+        div[data-testid="stExpander"] > div[role="button"] {
+            background: #ffffff !important;
+        }
+        div[data-testid="stExpander"] svg {
+            fill: #111111 !important;
+        }
+        .stTextInput input,
+        .stNumberInput input,
+        .stSelectbox div[data-baseweb="select"],
+        .stMultiSelect div[data-baseweb="select"],
+        .stTimeInput input {
+            background-color: #ffffff;
+            border-color: #edf1f5;
+            color: #111827;
+        }
+        .stSelectbox div[data-baseweb="select"],
+        .stMultiSelect div[data-baseweb="select"],
+        .stSelectbox div[data-baseweb="select"] > div,
+        .stMultiSelect div[data-baseweb="select"] > div {
+            background-color: #ffffff;
+        }
+        .stTextInput input::placeholder {
+            color: #9ca3af;
+        }
+        .stSelectbox div[data-baseweb="select"] *,
+        .stMultiSelect div[data-baseweb="select"] * {
+            color: #111827;
+        }
+        .stSlider [data-baseweb="slider"] {
+            color: #111827;
+        }
+        .pill {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 999px;
+            font-size: 12px;
+            background: #eef2f7;
+            color: #475569;
+        }
+        .pill.good {
+            background: #e6f4ef;
+            color: var(--good);
+        }
+        .pill.warn {
+            background: #fff4d6;
+            color: var(--warn);
+        }
+        .callout {
+            background: #f6f9ff;
+            border: 1px solid #e3edff;
+            padding: 12px 14px;
+            border-radius: 12px;
+        }
+        .callout.strong {
+            background: #edf4ff;
+            border-color: #cfe0ff;
+        }
+        .stButton > button {
+            border-radius: 10px;
+            padding: 0.6rem 1.1rem;
+            color: #111827;
+            background: #f8fafc;
+            border: 1px solid #e5e7eb;
+        }
+        .stButton > button[data-testid="stBaseButton-primary"] {
+            background: var(--accent);
+            border: 1px solid var(--accent);
+            color: #ffffff;
+        }
+        [data-testid="stTabs"] button {
+            color: #111827;
+        }
+        [data-testid="stTabs"] [aria-selected="true"] {
+            color: #111827;
+            font-weight: 700;
+        }
+        .small-muted {
+            color: var(--muted);
+            font-size: 13px;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
+
+inject_global_styles()
 
 
 # =======================
@@ -223,7 +442,7 @@ def evaluate_time_excuse(exercise_time_str: str, duration_minutes: int, excuse_t
 
     except Exception as e:
         # 캘린더 연동 실패시 판단 불가
-        st.warning(f"⚠️ 캘린더 확인 불가: {str(e)}")
+        st.warning(f"캘린더 확인이 어려워 판단할 수 없습니다: {str(e)}")
         return {"valid": None, "reason": "calendar_unavailable"}
 
 
@@ -278,84 +497,683 @@ def persist_excuse_and_maybe_show_insight(
 
     if not insight_shown and insight.get("escalate"):
         advice = messaging.generate_coaching_advice(excuse_type, insight.get("count"), insight.get("window_days"))
-        st.warning(f"⚠️ 지난 {insight.get('window_days')}일 동안 '{excuse_type}' 핑계가 {insight.get('count')}회였습니다.\n\n{advice}")
+        label = EXCUSE_LABELS.get(excuse_type, excuse_type)
+        st.info(
+            f"최근 {insight.get('window_days')}일 동안 '{label}' 사유가 {insight.get('count')}회 있었어요.\n\n{advice}"
+        )
         insight_shown = True
 
     return exc_row_id, insight_shown
-st.title("No Excuses AI Agent")
-st.write("데이터 기반 핑계 격파 운동 코치")
+
+
+def render_indoor_exercise_card():
+    video = INDOOR_EXERCISE_LINKS[0]
+    st.markdown(
+        f"""
+        <div class="card">
+            <div class="card-title">실내 10분 운동 추천</div>
+            <div class="card-body">짧게 시작하는 게 가장 좋아요. 버튼을 눌러 영상을 바로 열어보세요.</div>
+            <a class="cta-btn" href="{video['url']}" target="_blank">계속</a>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+
+def render_action_card(title: str, message: str, cta_label: str, cta_url: Optional[str] = None):
+    st.markdown(
+        f"""
+        <div class="card">
+            <div class="card-title">{title}</div>
+            <div class="card-body">{message}</div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+    if cta_url:
+        st.markdown(
+            f"<a class=\"cta-btn\" href=\"{cta_url}\" target=\"_blank\">{cta_label}</a>",
+            unsafe_allow_html=True
+        )
+    else:
+        st.button(cta_label)
+
+
+def render_page_header():
+    top_col = st.columns([1, 9])
+    with top_col[0]:
+        if st.button("홈", key="home_btn"):
+            if st.session_state.user:
+                st.session_state.onboarded = True
+            else:
+                st.session_state.onboarded = False
+            st.rerun()
+
+    st.markdown(
+        """
+        <div class="page-title">No Excuses Coach</div>
+        <div class="page-subtitle">오늘의 판단을 한 줄로 확인하고, 바로 다음 행동을 선택하세요.</div>
+        """,
+        unsafe_allow_html=True
+    )
+
+
+def render_onboarding_ui() -> Dict[str, Any]:
+    st.header("시작하기")
+    st.caption("간단한 정보만 입력하면 오늘부터 코칭을 시작합니다.")
+
+    with st.expander("1. 기본 프로필", expanded=True):
+        name = st.text_input("이름", placeholder="예: 지민")
+        col_a, col_b = st.columns(2)
+        with col_a:
+            height_cm = st.number_input("키 (cm)", min_value=100, max_value=250, value=170)
+        with col_b:
+            weight_kg = st.number_input("체중 (kg)", min_value=30, max_value=200, value=70)
+
+    with st.expander("2. 운동 목표", expanded=True):
+        goal = st.selectbox("운동 목적", ["체중 감량", "체력 향상", "스트레스 해소", "습관 형성"])
+        st.markdown('<div class="small-muted">목표는 나중에 바꿔도 괜찮아요.</div>', unsafe_allow_html=True)
+
+    with st.expander("3. 주간 스케줄", expanded=True):
+        selected_days = st.multiselect("운동 요일", ["월", "화", "수", "목", "금", "토", "일"])
+
+        schedules = {}
+        if selected_days:
+            st.markdown('<div class="small-muted">요일별 운동 시간과 길이를 설정하세요.</div>', unsafe_allow_html=True)
+            for day in selected_days:
+                with st.container(border=True):
+                    st.markdown(f"**{day}요일**")
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        start_time = st.time_input(
+                            f"{day} 시작시간",
+                            value=datetime.strptime("07:00", "%H:%M").time(),
+                            key=f"start_{day}"
+                        )
+                    with col2:
+                        duration = st.slider(
+                            f"{day} 지속시간 (분)",
+                            min_value=10,
+                            max_value=180,
+                            value=60,
+                            step=10,
+                            key=f"duration_{day}"
+                        )
+                    schedules[day] = {
+                        "start_time": start_time.strftime("%H:%M"),
+                        "duration": duration
+                    }
+
+    st.markdown("**준비가 되었으면 시작하세요.**")
+    start_clicked = st.button("저장하고 시작하기", type="primary")
+
+    return {
+        "name": name,
+        "height_cm": height_cm,
+        "weight_kg": weight_kg,
+        "goal": goal,
+        "selected_days": selected_days,
+        "schedules": schedules,
+        "start_clicked": start_clicked,
+    }
+
+
+def render_plan_overview(user: Dict[str, Any], plan: Dict[str, Any]) -> Dict[str, Any]:
+    st.header("오늘")
+
+    schedules = plan.get("schedules", {})
+    with st.container(border=True):
+        st.subheader(f"{user['name']}님의 기본 플랜")
+        st.write(f"운동 요일: {', '.join(plan['days'])}")
+        if schedules:
+            cols = st.columns(2)
+            for idx, (day, sched) in enumerate(schedules.items()):
+                with cols[idx % 2]:
+                    st.markdown(f"- {day} {sched['start_time']} ({sched['duration']}분)")
+
+    return schedules
+
+
+def render_today_summary(today_weekday: str, is_exercise_day: bool, today_schedule: Optional[Dict[str, Any]], sleeps):
+    with st.container(border=True):
+        st.subheader("오늘 요약")
+        status_label = "운동 예정일" if is_exercise_day else "휴식일"
+        status_class = "good" if is_exercise_day else ""
+        st.markdown(
+            f"<span class='pill {status_class}'>{status_label}</span>",
+            unsafe_allow_html=True
+        )
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("오늘 요일", today_weekday)
+            st.metric("운동 예정", "예" if is_exercise_day else "아니오")
+        with col2:
+            if today_schedule:
+                st.metric("운동 시간", today_schedule["start_time"])
+                st.metric("운동 길이", f"{today_schedule['duration']}분")
+            else:
+                st.metric("운동 시간", "-")
+                st.metric("운동 길이", "-")
+        with col3:
+            sleep_summary = "있음" if sleeps else "없음"
+            st.metric("수면 데이터", sleep_summary)
+
+
+def render_plan_eval(plan_eval: Optional[Dict[str, Any]]):
+    if plan_eval and not st.session_state.get("plan_eval_shown", False):
+        with st.container(border=True):
+            st.subheader("플랜 진단")
+            status = plan_eval.get("status")
+            reason = plan_eval.get("reason", "")
+            action = plan_eval.get("action", "")
+
+            coach_lines = {
+                "insufficient": "조금만 보완하면 더 안정적인 계획이 됩니다.",
+                "adequate": "지금 계획은 균형이 좋아요.",
+                "excessive": "의욕이 느껴져요. 페이스를 조금만 낮춰도 좋아요.",
+            }
+            message = f"{coach_lines.get(status, '')}\n\n{reason}\n\n{action}"
+
+            if status == "adequate":
+                st.success(message)
+            elif status == "excessive":
+                st.info(message)
+            else:
+                st.warning(message)
+
+        st.session_state.plan_eval_shown = True
+        st.session_state.pop("plan_eval_result", None)
+
+
+def render_plan_edit_button():
+    if st.session_state.get("plan_eval_status") in ("insufficient", "excessive"):
+        if st.button("계획 수정하러 가기"):
+            st.session_state.onboarded = False
+            st.session_state.plan_eval_shown = False
+            st.session_state.pop("plan_eval_result", None)
+            st.session_state.pop("plan_eval_status", None)
+            st.rerun()
+
+
+def render_action_tab(
+    user_id: int,
+    today: date,
+    now: datetime,
+    is_exercise_day: bool,
+    today_weekday: str,
+    today_schedule: Optional[Dict[str, Any]],
+):
+    with st.container(border=True):
+        st.subheader("오늘의 기록")
+        st.markdown('<div class="small-muted">오늘 결과를 간단히 기록해 주세요.</div>', unsafe_allow_html=True)
+
+    if not is_exercise_day:
+        st.markdown(
+            f"<div class='callout'>오늘은 휴식일이에요 ({today_weekday}). 운동했다면 기록을 남겨주세요.</div>",
+            unsafe_allow_html=True
+        )
+
+        with st.container(border=True):
+            st.subheader("선택")
+            did_ex_off_day = st.radio(
+                "오늘 기록",
+                ["선택", "했어요", "못 했어요"],
+                key="did_off_day",
+                horizontal=True,
+                label_visibility="collapsed"
+            )
+
+        if did_ex_off_day == "했어요":
+            st.success("좋아요. 보너스 운동으로 기록했습니다.")
+            st.session_state.last_check_date = today
+            db.add_exercise_log(user_id, today.isoformat(), True)
+        elif did_ex_off_day == "못 했어요":
+            st.info("괜찮아요. 내일 다시 이어가면 됩니다.")
+            st.session_state.last_check_date = today
+            db.add_exercise_log(user_id, today.isoformat(), False)
+
+    elif today_schedule is None:
+        st.warning(f"오늘({today_weekday})의 운동 스케줄이 없습니다.")
+
+    else:
+        today_start_time_str = today_schedule["start_time"]
+        today_duration = today_schedule["duration"]
+
+        exercise_time_today = datetime.strptime(
+            f"{today} {today_start_time_str}",
+            "%Y-%m-%d %H:%M"
+        )
+        exercise_end_time_today = exercise_time_today + timedelta(minutes=today_duration)
+
+        def process_excuse_submission(excuse_text, user_id, start_time_str, duration_min):
+            result = classify_excuse(excuse_text)
+            excuse_type = result["excuse_type"]
+            confidence = result["confidence"]
+            reason = result["reason"]
+
+            policy = EXCUSE_POLICY.get(excuse_type, "NEUTRAL_REFLECT")
+            insight = insights.repeated_excuse_insight(user_id, excuse_type)
+            insight_shown = False
+
+            log_id = db.add_exercise_log(user_id, today.isoformat(), False)
+
+            label = EXCUSE_LABELS.get(excuse_type, excuse_type)
+            st.markdown(
+                f"<div class='decision-title'>오늘은 '{label}' 사유로 운동이 어려울 수 있어요.</div>"
+                "<div class='support-text'>필요할 때만 근거를 확인하세요.</div>",
+                unsafe_allow_html=True
+            )
+
+            decision_expander = st.expander("판단 근거 및 데이터 확인")
+
+            if policy == "WEATHER_CHECK":
+                weather_fact = get_weather_fact()
+                eval_result = evaluate_weather_excuse(excuse_text, weather_fact)
+
+                with decision_expander:
+                    st.subheader("데이터 확인")
+                    st.write(f"- 상태: {weather_fact['desc']}")
+                    st.write(f"- 기온: {weather_fact['temp']}°C")
+                    st.caption(f"판단 근거: {reason}")
+                    st.caption(f"적용 정책: {policy}")
+
+                if not eval_result["valid"]:
+                    reason_key = eval_result.get("reason", "")
+                    REJECTION_MESSAGES = {
+                        "claimed_rain_but_no_rain": "비가 온다고 하셨지만 현재는 비가 없어요.\n\n날씨 외 다른 이유도 함께 살펴볼까요?",
+                        "claimed_snow_but_no_snow": "눈이 온다고 하셨지만 현재는 눈 소식이 없어요.\n\n날씨 외 다른 이유도 함께 살펴볼까요?",
+                        "claimed_wind_but_no_wind": "바람이 심하다고 하셨지만, 현재 강풍 징후가 없어요.\n\n날씨 외 다른 이유도 함께 살펴볼까요?",
+                        "claimed_dust_but_no_evidence": "미세먼지나 황사를 이유로 들었지만, 현재 대기 상태에 근거가 부족해요.\n\n날씨 외 다른 이유도 함께 살펴볼까요?",
+                        "claimed_cold_but_not_cold": "추위가 걱정된다고 하셨지만, 현재 기온은 매우 낮지 않아요.\n\n날씨 외 다른 이유도 함께 살펴볼까요?",
+                        "claimed_hot_but_not_hot": "폭염이라고 하셨지만, 현재 온도는 폭염 수준이 아니에요.\n\n날씨 외 다른 이유도 함께 살펴볼까요?",
+                    }
+
+                    message = REJECTION_MESSAGES.get(
+                        reason_key,
+                        "주장하신 날씨 사유가 현재 기상 데이터와 맞지 않습니다.\n\n날씨 외 이유를 함께 살펴볼까요?"
+                    )
+
+                    render_action_card(
+                        "지금 할 수 있는 행동",
+                        "외부 조건은 문제 없어 보여요. 10분만 가볍게 시작해볼까요?",
+                        "확인"
+                    )
+
+                    exc_row_id, insight_shown = persist_excuse_and_maybe_show_insight(
+                        log_id,
+                        excuse_text,
+                        excuse_type,
+                        confidence,
+                        reason,
+                        policy,
+                        eval_result.get("reason"),
+                        insight,
+                        insight_shown,
+                    )
+                else:
+                    render_action_card(
+                        "지금 할 수 있는 행동",
+                        "오늘은 날씨가 부담스러울 수 있어요. 실내에서 10분만 움직여보세요.",
+                        "계속"
+                    )
+                    render_indoor_exercise_card()
+                    exc_row_id, insight_shown = persist_excuse_and_maybe_show_insight(
+                        log_id,
+                        excuse_text,
+                        excuse_type,
+                        confidence,
+                        reason,
+                        policy,
+                        eval_result.get("reason"),
+                        insight,
+                        insight_shown,
+                    )
+
+            elif policy == "TIME_CHECK":
+                time_eval = evaluate_time_excuse(start_time_str, duration_min, excuse_text)
+
+                if time_eval["valid"] is None:
+                    with decision_expander:
+                        st.subheader("데이터 확인")
+                        st.info("일정 확인이 어렵거나 시간 관련 사유가 아닙니다.")
+                        st.caption(f"판단 근거: {reason}")
+                        st.caption(f"적용 정책: {policy}")
+                    render_action_card(
+                        "지금 할 수 있는 행동",
+                        "가능한 시간대를 직접 선택해 짧게라도 시작해보세요.",
+                        "확인"
+                    )
+                    exc_row_id, insight_shown = persist_excuse_and_maybe_show_insight(
+                        log_id,
+                        excuse_text,
+                        excuse_type,
+                        confidence,
+                        reason,
+                        policy,
+                        "inconclusive",
+                        insight,
+                        insight_shown,
+                    )
+
+                elif time_eval["valid"]:
+                    with decision_expander:
+                        st.subheader("데이터 확인")
+                        st.info("캘린더에 일정이 있었네요. 바쁜 하루였겠어요.")
+                        st.caption(f"판단 근거: {reason}")
+                        st.caption(f"적용 정책: {policy}")
+                    suggested_start = time_eval.get("suggested_start")
+                    suggested_end = time_eval.get("suggested_end")
+                    if suggested_start and suggested_end:
+                        render_action_card(
+                            "지금 할 수 있는 행동",
+                            f"오늘 {suggested_start} 이후 {duration_min}분 정도 가볍게 움직여보세요.",
+                            "확인"
+                        )
+                    else:
+                        render_action_card(
+                            "지금 할 수 있는 행동",
+                            "일정이 끝난 뒤, 같은 날 늦은 시간에 짧게 움직여보세요.",
+                            "확인"
+                        )
+                    exc_row_id, insight_shown = persist_excuse_and_maybe_show_insight(
+                        log_id,
+                        excuse_text,
+                        excuse_type,
+                        confidence,
+                        reason,
+                        policy,
+                        time_eval.get("reason"),
+                        insight,
+                        insight_shown,
+                    )
+
+                else:
+                    with decision_expander:
+                        st.subheader("데이터 확인")
+                        st.warning("운동 시간에 겹치는 일정이 보이지 않아요.\n\n가능한 시간대를 다시 확인해볼까요?")
+                        st.caption(f"판단 근거: {reason}")
+                        st.caption(f"적용 정책: {policy}")
+                    render_action_card(
+                        "지금 할 수 있는 행동",
+                        "일정상 가능해 보여요. 10분만 가볍게 시작해볼까요?",
+                        "확인"
+                    )
+                    exc_row_id, insight_shown = persist_excuse_and_maybe_show_insight(
+                        log_id,
+                        excuse_text,
+                        excuse_type,
+                        confidence,
+                        reason,
+                        policy,
+                        "claimed_time_but_no_conflict",
+                        insight,
+                        insight_shown,
+                    )
+
+            elif policy == "LOW_INTENSITY":
+                sleep_eval = evaluate_sleep_excuse(user_id, excuse_text)
+                if sleep_eval["valid"] is None:
+                    with decision_expander:
+                        st.subheader("데이터 확인")
+                        st.info("컨디션 관련 사유로 보이나, 수면 데이터가 부족해 판단할 수 없습니다.")
+                        st.caption(f"판단 근거: {reason}")
+                        st.caption(f"적용 정책: {policy}")
+                    render_action_card(
+                        "지금 할 수 있는 행동",
+                        "오늘은 몸 상태를 우선해 휴식하거나, 저강도로 10분만 움직여보세요.",
+                        "확인"
+                    )
+                    render_indoor_exercise_card()
+                    exc_row_id, insight_shown = persist_excuse_and_maybe_show_insight(
+                        log_id,
+                        excuse_text,
+                        excuse_type,
+                        confidence,
+                        reason,
+                        policy,
+                        sleep_eval.get("reason"),
+                        insight,
+                        insight_shown,
+                    )
+                elif sleep_eval["valid"]:
+                    with decision_expander:
+                        st.subheader("데이터 확인")
+                        st.info(f"최근 평균 수면이 낮습니다 ({sleep_eval.get('avg_hours'):.1f}시간).")
+                        st.caption(f"판단 근거: {reason}")
+                        st.caption(f"적용 정책: {policy}")
+                    render_action_card(
+                        "지금 할 수 있는 행동",
+                        "오늘은 휴식을 택하거나, 저강도로 10분만 움직여보는 것도 좋아요.",
+                        "확인"
+                    )
+                    render_indoor_exercise_card()
+                    exc_row_id, insight_shown = persist_excuse_and_maybe_show_insight(
+                        log_id,
+                        excuse_text,
+                        excuse_type,
+                        confidence,
+                        reason,
+                        policy,
+                        sleep_eval.get("reason"),
+                        insight,
+                        insight_shown,
+                    )
+                else:
+                    with decision_expander:
+                        st.subheader("데이터 확인")
+                        st.info(
+                            f"수면 데이터 기준으로는 컨디션이 무리하지 않아도 되는 수준이에요 (평균 {sleep_eval.get('avg_hours'):.1f}시간)."
+                        )
+                        st.caption(f"판단 근거: {reason}")
+                        st.caption(f"적용 정책: {policy}")
+                    render_action_card(
+                        "지금 할 수 있는 행동",
+                        "가벼운 운동으로 기분 전환해볼까요?",
+                        "확인"
+                    )
+                    exc_row_id, insight_shown = persist_excuse_and_maybe_show_insight(
+                        log_id,
+                        excuse_text,
+                        excuse_type,
+                        confidence,
+                        reason,
+                        policy,
+                        sleep_eval.get("reason"),
+                        insight,
+                        insight_shown,
+                    )
+
+            else:
+                with decision_expander:
+                    st.subheader("데이터 확인")
+                    st.info("기타 사유는 명확한 데이터 검증이 어려워 강한 개입 없이 사용자의 선택을 존중합니다.")
+                    st.caption(f"판단 근거: {reason}")
+                    st.caption(f"적용 정책: {policy}")
+                render_action_card(
+                    "지금 할 수 있는 행동",
+                    "오늘 컨디션과 일정에 맞게 스스로 선택해도 괜찮아요.",
+                    "확인"
+                )
+                exc_row_id, insight_shown = persist_excuse_and_maybe_show_insight(
+                    log_id,
+                    excuse_text,
+                    excuse_type,
+                    confidence,
+                    reason,
+                    policy,
+                    "neutral",
+                    insight,
+                    insight_shown,
+                )
+
+        if st.session_state.last_check_date == today:
+            st.info("오늘 기록을 이미 저장했어요.")
+
+        else:
+            if now < exercise_time_today:
+                st.markdown(
+                    "<div class='callout'>아직 운동 시작 전이에요. 미리 했는지 알려주세요.</div>",
+                    unsafe_allow_html=True
+                )
+                with st.container(border=True):
+                    st.subheader("선택")
+                    did_ex_before = st.radio(
+                        "오늘 기록",
+                        ["선택", "했어요", "못 했어요"],
+                        key="did_pre",
+                        horizontal=True,
+                        label_visibility="collapsed"
+                    )
+
+                if did_ex_before == "했어요":
+                    st.success("좋아요. 미리 운동한 기록을 저장했습니다.")
+                    st.session_state.last_check_date = today
+                    db.add_exercise_log(user_id, today.isoformat(), True)
+                elif did_ex_before == "못 했어요":
+                    excuse_pre = st.text_input("오늘 못 한 이유를 알려주세요", key="excuse_pre")
+                    if excuse_pre:
+                        st.session_state.last_check_date = today
+                        process_excuse_submission(excuse_pre, user_id, today_start_time_str, today_duration)
+
+            elif exercise_time_today <= now <= exercise_end_time_today:
+                st.markdown(
+                    "<div class='callout strong'>지금은 운동 시간입니다.</div>",
+                    unsafe_allow_html=True
+                )
+                with st.container(border=True):
+                    st.subheader("선택")
+                    did_exercise = st.radio(
+                        "오늘 기록",
+                        ["선택", "했어요", "못 했어요"],
+                        key="did_during",
+                        horizontal=True,
+                        label_visibility="collapsed"
+                    )
+
+                if did_exercise == "했어요":
+                    st.success("좋아요. 오늘 운동 완료로 기록했습니다.")
+                    st.session_state.last_check_date = today
+                    db.add_exercise_log(user_id, today.isoformat(), True)
+
+                elif did_exercise == "못 했어요":
+                    excuse = st.text_input("오늘 못 한 이유를 알려주세요", key="excuse_during")
+                    if excuse:
+                        st.session_state.last_check_date = today
+                        process_excuse_submission(excuse, user_id, today_start_time_str, today_duration)
+
+            else:
+                st.markdown(
+                    "<div class='callout'>운동 시간이 지났어요. 지금이라도 기록을 남겨주세요.</div>",
+                    unsafe_allow_html=True
+                )
+                with st.container(border=True):
+                    st.subheader("선택")
+                    did_ex_after = st.radio(
+                        "오늘 기록",
+                        ["선택", "했어요", "못 했어요"],
+                        key="did_post",
+                        horizontal=True,
+                        label_visibility="collapsed"
+                    )
+
+                if did_ex_after == "했어요":
+                    st.success("좋아요. 오늘 운동 완료로 기록했습니다.")
+                    st.session_state.last_check_date = today
+                    db.add_exercise_log(user_id, today.isoformat(), True)
+                elif did_ex_after == "못 했어요":
+                    excuse_post = st.text_input("오늘 못 한 이유를 알려주세요", key="excuse_post")
+                    if excuse_post:
+                        st.session_state.last_check_date = today
+                        process_excuse_submission(excuse_post, user_id, today_start_time_str, today_duration)
+
+
+def render_history_tab(user_id: int, plan: Dict[str, Any], sleeps):
+    st.header("기록과 인사이트")
+    st.caption("반복되는 패턴을 확인하고 다음 주 계획을 조정해 보세요.")
+
+    st.subheader("수면 기록")
+    st.caption("최근 수면 데이터를 간단히 확인합니다.")
+    if sleeps:
+        for r in sleeps:
+            st.write(f"- {r[1]} → {r[2]} (src: {r[3]})")
+    else:
+        st.info("아직 수면 기록이 없습니다.")
+
+    with st.expander("수면 데이터 / 데모 도구"):
+        col_a, col_b = st.columns(2)
+        with col_a:
+            uploaded = st.file_uploader("수면 CSV 업로드 (start,end)", type=["csv"])
+        if uploaded is not None:
+            parsed = fit.parse_sleep_csv(uploaded)
+            if parsed:
+                for s in parsed:
+                    db.add_sleep_log(user_id, s["start"], s["end"], source="upload")
+                st.success(f"{len(parsed)}개의 수면 레코드를 저장했습니다.")
+            else:
+                st.warning("CSV를 파싱할 수 없거나 형식이 맞지 않습니다.")
+        with col_b:
+            if st.button("샘플 수면 데이터 불러오기"):
+                sample = fit.generate_mock_sleep(7)
+                for s in sample:
+                    db.add_sleep_log(user_id, s["start"], s["end"], source="mock")
+                st.success("샘플 수면데이터 7개가 저장되었습니다.")
+
+            st.divider()
+            st.write("테스트용으로 동일한 유형의 핑계를 과거 날짜에 생성합니다.")
+            demo_excuse_type = st.selectbox("핑계 유형 선택", list(EXCUSE_POLICY.keys()), index=0)
+            demo_count = st.number_input("몇 회 생성할까요?", min_value=1, max_value=20, value=3)
+            demo_span = st.number_input("몇 일 범위에 분산할까요?", min_value=1, max_value=90, value=14)
+            if st.button("데모: 동일 핑계 생성"):
+                created = insights.seed_repeated_excuses(user_id, demo_excuse_type, int(demo_count), int(demo_span))
+                st.success(
+                    f"{created}개의 시연용 핑계가 생성되었습니다.\n\n이제 아래 '핑계 제출' 섹션에서 '{demo_excuse_type}' 핑계를 입력하면, 반복 패턴을 확인할 수 있습니다."
+                )
+
+    st.divider()
+
+    from services.calendar_view import render_calendar_view
+    user_name = st.session_state.user.get("name", "사용자")
+    plan_days = plan.get("days", [])
+    st.subheader("캘린더 기록")
+    st.caption("운동, 휴식, 사유 기록을 한눈에 되돌아보세요.")
+    render_calendar_view(user_id, user_name, plan_days)
+
+
+render_page_header()
 
 # =======================
 # 1️⃣ 온보딩
 # =======================
 if not st.session_state.onboarded:
-    st.subheader("👤 사용자 정보 입력")
-
-
-    name = st.text_input("이름")
-    col_a, col_b = st.columns(2)
-    with col_a:
-        height_cm = st.number_input("키 (cm)", min_value=100, max_value=250, value=170)
-    with col_b:
-        weight_kg = st.number_input("체중 (kg)", min_value=30, max_value=200, value=70)
-
-    goal = st.selectbox("운동 목적", ["체중 감량", "체력 향상", "스트레스 해소", "습관 형성"])
-
-    selected_days = st.multiselect("운동 요일", ["월", "화", "수", "목", "금", "토", "일"])
-
-    # 요일별 운동 시간 설정
-    schedules = {}
-    if selected_days:
-        st.subheader("⏰ 요일별 운동 시간 설정")
-        for day in selected_days:
-            with st.expander(f"📅 {day}요일"):
-                col1, col2 = st.columns(2)
-                with col1:
-                    start_time = st.time_input(
-                        f"{day} 시작시간",
-                        value=datetime.strptime("07:00", "%H:%M").time(),
-                        key=f"start_{day}"
-                    )
-                with col2:
-                    duration = st.slider(
-                        f"{day} 지속시간 (분)",
-                        min_value=10,
-                        max_value=180,
-                        value=60,
-                        step=10,
-                        key=f"duration_{day}"
-                    )
-                schedules[day] = {
-                    "start_time": start_time.strftime("%H:%M"),
-                    "duration": duration
-                }
-
-    if st.button("저장하고 시작하기"):
-        if not name or not selected_days:
+    onboarding = render_onboarding_ui()
+    if onboarding["start_clicked"]:
+        if not onboarding["name"] or not onboarding["selected_days"]:
             st.warning("이름과 운동 요일은 필수입니다.")
         else:
-            # session state 저장
             st.session_state.user = {
-                "name": name,
-                "height_cm": height_cm,
-                "weight_kg": weight_kg,
-                "goal": goal,
+                "name": onboarding["name"],
+                "height_cm": onboarding["height_cm"],
+                "weight_kg": onboarding["weight_kg"],
+                "goal": onboarding["goal"],
                 "plan": {
-                    "days": selected_days,
-                    "schedules": schedules
-                }
+                    "days": onboarding["selected_days"],
+                    "schedules": onboarding["schedules"],
+                },
             }
-            # DB 저장
-            user_id = db.ensure_user(name, height_cm, weight_kg, goal)
+            user_id = db.ensure_user(
+                onboarding["name"],
+                onboarding["height_cm"],
+                onboarding["weight_kg"],
+                onboarding["goal"],
+            )
             st.session_state.user["id"] = user_id
-            db.set_schedules(user_id, schedules)
-            # 1회성 평가 결과 저장 (메인 화면에서만 노출)
+            db.set_schedules(user_id, onboarding["schedules"])
             st.session_state.plan_eval_result = evaluate_plan(
-                height_cm=height_cm,
-                weight_kg=weight_kg,
-                exercise_days=selected_days,
-                schedules=schedules,
-                goal=goal,
+                height_cm=onboarding["height_cm"],
+                weight_kg=onboarding["weight_kg"],
+                exercise_days=onboarding["selected_days"],
+                schedules=onboarding["schedules"],
+                goal=onboarding["goal"],
             )
             st.session_state.plan_eval_status = st.session_state.plan_eval_result.get("status")
             st.session_state.plan_eval_shown = False
@@ -369,13 +1187,8 @@ else:
     user = st.session_state.user
     plan = user["plan"]
 
-    st.subheader(f"💪 {user['name']}님의 운동 플랜")
-    st.write(f"- 📅 요일: {', '.join(plan['days'])}")
+    schedules = render_plan_overview(user, plan)
 
-    # 요일별 스케줄 표시
-    schedules = plan.get("schedules", {})
-    for day, sched in schedules.items():
-        st.write(f"  - {day}: {sched['start_time']} ({sched['duration']}분)")
     st.divider()
 
     now = datetime.now()
@@ -388,61 +1201,20 @@ else:
     st.session_state.user["id"] = user_id
     sleeps = db.get_recent_sleep_logs(user_id, limit=10)
 
-    with st.container(border=True):
-        st.subheader("📅 오늘의 상태 요약")
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("오늘 요일", today_weekday)
-            st.metric("운동 예정", "O" if is_exercise_day else "X")
-        with col2:
-            if today_schedule:
-                st.metric("운동 시간", today_schedule["start_time"])
-                st.metric("운동 길이", f"{today_schedule['duration']}분")
-            else:
-                st.metric("운동 시간", "-")
-                st.metric("운동 길이", "-")
-        with col3:
-            sleep_summary = "있음" if sleeps else "없음"
-            st.metric("수면 데이터", sleep_summary)
+    render_today_summary(today_weekday, is_exercise_day, today_schedule, sleeps)
 
     # AI 운동 계획 진단 (1회성 피드백)
     plan_eval = st.session_state.get("plan_eval_result")
-    if plan_eval and not st.session_state.get("plan_eval_shown", False):
-        st.subheader("AI 운동 계획 진단")
-        status = plan_eval.get("status")
-        reason = plan_eval.get("reason", "")
-        action = plan_eval.get("action", "")
-
-        coach_lines = {
-            "insufficient": "조금만 보완하면 훨씬 탄탄한 계획이 될 수 있어요.",
-            "adequate": "지금 계획은 좋은 균형을 갖추고 있어요.",
-            "excessive": "열정이 느껴지는 계획이에요. 페이스를 조절해도 좋아요.",
-        }
-        message = f"{coach_lines.get(status, '')}\n\n{reason}\n\n{action}"
-
-        if status == "adequate":
-            st.success(message)
-        elif status == "excessive":
-            st.info(message)
-        else:
-            st.warning(message)
-
-        st.session_state.plan_eval_shown = True
-        st.session_state.pop("plan_eval_result", None)
+    render_plan_eval(plan_eval)
 
     # 계획이 부족/과할 때만 수정 버튼 노출 (진단 출력 후에도 유지)
-    if st.session_state.get("plan_eval_status") in ("insufficient", "excessive"):
-        if st.button("계획 수정하러 가기"):
-            st.session_state.onboarded = False
-            st.session_state.plan_eval_shown = False
-            st.session_state.pop("plan_eval_result", None)
-            st.session_state.pop("plan_eval_status", None)
-            st.rerun()
+    render_plan_edit_button()
 
     # 탭 메뉴
-    tab_action, tab_history = st.tabs(["🏋️ 오늘의 선택", "📊 기록 & 패턴"])
+    tab_action, tab_history = st.tabs(["오늘의 선택", "기록 & 패턴"])
 
     with tab_action:
+<<<<<<< HEAD
         with st.container(border=True):
             st.subheader("❓ 오늘 운동하셨나요?")
 
@@ -787,48 +1559,9 @@ else:
                         if excuse_post:
                             st.session_state.last_check_date = today
                             process_excuse_submission(excuse_post, user_id, today_start_time_str, today_duration)
+=======
+        render_action_tab(user_id, today, now, is_exercise_day, today_weekday, today_schedule)
+>>>>>>> 2d82af9fe16f73234ba1476ca5f3d778a8b73bf0
 
     with tab_history:
-        st.subheader("📊 나의 운동 패턴")
-        st.caption("반복되는 핑계 유형을 기반으로 인사이트를 제공합니다")
-
-        if sleeps:
-            st.write("최근 수면 기록:")
-            for r in sleeps:
-                st.write(f"- {r[1]} → {r[2]} (src: {r[3]})")
-
-        with st.expander("🛌 수면 데이터 / 데모 도구"):
-            col_a, col_b = st.columns(2)
-            with col_a:
-                uploaded = st.file_uploader("수면 CSV 업로드 (start,end)", type=["csv"])
-            if uploaded is not None:
-                parsed = fit.parse_sleep_csv(uploaded)
-                if parsed:
-                    for s in parsed:
-                        db.add_sleep_log(user_id, s["start"], s["end"], source="upload")
-                    st.success(f"{len(parsed)}개의 수면 레코드를 저장했습니다.")
-                else:
-                    st.warning("CSV를 파싱할 수 없거나 형식이 맞지 않습니다.")
-            with col_b:
-                if st.button("샘플 수면 데이터 불러오기"):
-                    sample = fit.generate_mock_sleep(7)
-                    for s in sample:
-                        db.add_sleep_log(user_id, s["start"], s["end"], source="mock")
-                    st.success("샘플 수면데이터 7개가 저장되었습니다.")
-
-                st.divider()
-                st.write("테스트용으로 동일한 유형의 핑계를 과거 날짜에 생성합니다.")
-                demo_excuse_type = st.selectbox("핑계 유형 선택", list(EXCUSE_POLICY.keys()), index=0)
-                demo_count = st.number_input("몇 회 생성할까요?", min_value=1, max_value=20, value=3)
-                demo_span = st.number_input("몇 일 범위에 분산할까요?", min_value=1, max_value=90, value=14)
-                if st.button("데모: 동일 핑계 생성"):
-                    created = insights.seed_repeated_excuses(user_id, demo_excuse_type, int(demo_count), int(demo_span))
-                    st.success(f"{created}개의 시연용 핑계가 생성되었습니다.\n\n💡 팁: 이제 아래 '핑계 제출' 섹션에서 '{demo_excuse_type}' 핑계를 입력하면, DB에 기록된 반복 패턴을 확인할 수 있습니다.")
-
-        st.divider()
-
-        # 탭2: 캘린더 뷰
-        from services.calendar_view import render_calendar_view
-        user_name = st.session_state.user.get("name", "사용자")
-        plan_days = plan.get("days", [])
-        render_calendar_view(user_id, user_name, plan_days)
+        render_history_tab(user_id, plan, sleeps)
