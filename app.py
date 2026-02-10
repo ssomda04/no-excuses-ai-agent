@@ -6,6 +6,8 @@ from services.classifier import classify_excuse
 from services.weather import get_weather
 import db
 from services import fit
+from services import insights
+from services import messaging
 
 load_dotenv()
 
@@ -19,6 +21,7 @@ EXCUSE_POLICY = {
     "weather": "WEATHER_CHECK",
     "time": "TIME_CHECK",
     "energy": "LOW_INTENSITY",
+    "fatigue": "LOW_INTENSITY",
     "emotion": "MOTIVATION_PUSH",
     "health": "SAFE_SKIP",
     "other": "NEUTRAL_REFLECT"
@@ -180,31 +183,35 @@ def evaluate_time_excuse(exercise_time_str: str, duration_minutes: int, excuse_t
         # 캘린더 연동 실패시 판단 불가
         st.warning(f"⚠️ 캘린더 확인 불가: {str(e)}")
         return {"valid": None, "reason": "calendar_unavailable"}
-    # ❌ 비 온다 했는데 실제로 안 옴 → 거짓 핑계
-    if claimed_rain and not weather_fact["rain"]:
-        return {
-            "valid": False,
-            "reason": "claimed_rain_but_no_rain"
-        }
 
-    # 🥶 너무 추운 날씨 → 합당
-    if weather_fact["temp"] <= -5:
-        return {
-            "valid": True,
-            "reason": "too_cold"
-        }
 
-    # 🌧️ 실제 비/눈
-    if weather_fact["rain"] or weather_fact["snow"]:
-        return {
-            "valid": True,
-            "reason": "actual_bad_weather"
-        }
+def evaluate_sleep_excuse(user_id: int, excuse_text: str):
+    """
+    최근 수면 기록을 보고 '피곤해서 못했다' 주장 검토
+    - 최근 3일 평균 수면 시간이 6시간 미만이면 피로 사유를 타당하다고 판단
+    - 수면 데이터가 없으면 판단 불가 반환
+    """
+    sleeps = db.get_recent_sleep_logs(user_id, limit=3)
+    if not sleeps:
+        return {"valid": None, "reason": "no_sleep_data"}
 
-    return {
-        "valid": True,
-        "reason": "neutral_weather"
-    }
+    durations = []
+    for r in sleeps:
+        try:
+            s = datetime.fromisoformat(r[1])
+            e = datetime.fromisoformat(r[2])
+        except Exception:
+            continue
+        durations.append((e - s).total_seconds() / 3600.0)
+
+    if not durations:
+        return {"valid": None, "reason": "no_parsable_sleep_data"}
+
+    avg_hours = sum(durations) / len(durations)
+    if avg_hours < 6.0:
+        return {"valid": True, "reason": f"short_sleep_avg_{avg_hours:.1f}h", "avg_hours": avg_hours}
+    else:
+        return {"valid": False, "reason": f"sleep_ok_avg_{avg_hours:.1f}h", "avg_hours": avg_hours}
 
 
 # =======================
@@ -338,129 +345,216 @@ else:
         )
         exercise_end_time_today = exercise_time_today + timedelta(minutes=today_duration)
 
-        if now >= exercise_time_today and st.session_state.last_check_date != today:
-            st.warning("⏰ 오늘 운동 시간이에요!")
+        def process_excuse_submission(excuse_text, user_id, start_time_str, duration_min):
+            st.subheader("🧠 AI 분석 결과")
 
-            did_exercise = st.radio(
-                "오늘 운동 하셨나요?",
-                ["선택", "했어요", "못 했어요"]
-        )
+            result = classify_excuse(excuse_text)
+            excuse_type = result["excuse_type"]
+            confidence = result["confidence"]
+            reason = result["reason"]
 
-        if did_exercise == "했어요":
-            st.success("🔥 오늘 운동 완료! 잘하셨어요.")
-            st.session_state.last_check_date = today
-            # save log
-            user_id = st.session_state.user.get("id") or db.ensure_user(st.session_state.user.get("name", "unknown"))
-            st.session_state.user["id"] = user_id
-            db.add_exercise_log(user_id, today.isoformat(), True)
+            policy = EXCUSE_POLICY.get(excuse_type, "NEUTRAL_REFLECT")
+            # 인사이트(저장 전): 최근 반복 여부 확인(저장 전 집계)
+            insight = insights.repeated_excuse_insight(user_id, excuse_type)
+            insight_shown = False
 
-        elif did_exercise == "못 했어요":
-            excuse = st.text_input("❓ 왜 못 하셨나요?")
+            # persist exercise log (did_exercise = False) and excuse
+            log_id = db.add_exercise_log(user_id, today.isoformat(), False)
 
-            if excuse:
-                st.subheader("🧠 AI 분석 결과")
+            st.write("📌 핑계 유형:", excuse_type)
+            st.write("🔍 확신도:", round(confidence, 2))
+            st.write("🧠 판단 근거:", reason)
+            st.write("🤖 적용 정책:", policy)
+            st.divider()
 
-                result = classify_excuse(excuse)
-                excuse_type = result["excuse_type"]
-                confidence = result["confidence"]
-                reason = result["reason"]
+            # WEATHER_CHECK
+            if policy == "WEATHER_CHECK":
+                weather_fact = get_weather_fact()
+                eval_result = evaluate_weather_excuse(excuse_text, weather_fact)
 
-                policy = EXCUSE_POLICY.get(excuse_type, "NEUTRAL_REFLECT")
-                st.session_state.last_check_date = today
-
-                # persist exercise log (did_exercise = False) and excuse
-                user_id = st.session_state.user.get("id") or db.ensure_user(st.session_state.user.get("name", "unknown"))
-                st.session_state.user["id"] = user_id
-                log_id = db.add_exercise_log(user_id, today.isoformat(), False)
-
-                st.write("📌 핑계 유형:", excuse_type)
-                st.write("🔍 확신도:", round(confidence, 2))
-                st.write("🧠 판단 근거:", reason)
-                st.write("🤖 적용 정책:", policy)
+                st.subheader("🌤️ 실제 날씨 분석")
+                st.write(f"- 상태: {weather_fact['desc']}")
+                st.write(f"- 기온: {weather_fact['temp']}°C")
                 st.divider()
 
-                # =======================
-                # WEATHER_CHECK (핵심 수정)
-                # =======================
-                if policy == "WEATHER_CHECK":
-                    weather_fact = get_weather_fact()
-                    eval_result = evaluate_weather_excuse(excuse, weather_fact)
+                if not eval_result["valid"]:
+                    reason_key = eval_result.get("reason", "")
+                    REJECTION_MESSAGES = {
+                        "claimed_rain_but_no_rain": "❌ 비가 온다고 했지만 실제로는 비가 오지 않았어요.\n\n날씨가 운동을 막은 건 아니에요.",
+                        "claimed_snow_but_no_snow": "❌ 눈이 온다고 했지만 실제로는 눈이 오지 않았어요.\n\n날씨가 운동을 막은 건 아니에요.",
+                        "claimed_wind_but_no_wind": "❌ 바람이 심하다고 했지만, 현재 강풍 징후가 없어요.\n\n날씨가 운동을 막은 건 아니에요.",
+                        "claimed_dust_but_no_evidence": "❌ 미세먼지/황사로 운동을 못했다고 했지만, 현재 대기 상태에 근거가 없어요.\n\n날씨가 운동을 막은 건 아니에요.",
+                        "claimed_cold_but_not_cold": "❌ 너무 춥다고 하셨지만, 현재 기온은 매우 낮지 않아요.\n\n날씨가 운동을 막은 건 아니에요.",
+                        "claimed_hot_but_not_hot": "❌ 폭염이라고 했지만, 현재 온도는 폭염 수준이 아니에요.\n\n날씨가 운동을 막은 건 아니에요.",
+                    }
 
-                    st.subheader("🌤️ 실제 날씨 분석")
-                    st.write(f"- 상태: {weather_fact['desc']}")
-                    st.write(f"- 기온: {weather_fact['temp']}°C")
-                    st.divider()
+                    message = REJECTION_MESSAGES.get(
+                        reason_key,
+                        "❌ 주장하신 날씨 사유가 현재 기상 데이터와 일치하지 않습니다.\n\n날씨가 운동을 막은 건 아닌 것 같아요."
+                    )
 
-                    # ❌ 거짓 핑계
-                    if not eval_result["valid"]:
-                        reason_key = eval_result.get("reason", "")
-                        REJECTION_MESSAGES = {
-                            "claimed_rain_but_no_rain": "❌ 비가 온다고 했지만 실제로는 비가 오지 않았어요.\n\n날씨가 운동을 막은 건 아니에요.",
-                            "claimed_snow_but_no_snow": "❌ 눈이 온다고 했지만 실제로는 눈이 오지 않았어요.\n\n날씨가 운동을 막은 건 아니에요.",
-                            "claimed_wind_but_no_wind": "❌ 바람이 심하다고 했지만, 현재 강풍 징후가 없어요.\n\n날씨가 운동을 막은 건 아니에요.",
-                            "claimed_dust_but_no_evidence": "❌ 미세먼지/황사로 운동을 못했다고 했지만, 현재 대기 상태에 근거가 없어요.\n\n날씨가 운동을 막은 건 아니에요.",
-                            "claimed_cold_but_not_cold": "❌ 너무 춥다고 하셨지만, 현재 기온은 매우 낮지 않아요.\n\n날씨가 운동을 막은 건 아니에요.",
-                            "claimed_hot_but_not_hot": "❌ 폭염이라고 했지만, 현재 온도는 폭염 수준이 아니에요.\n\n날씨가 운동을 막은 건 아니에요.",
-                        }
+                    st.error(message)
+                    st.success(
+                        "👉 이 핑계는 날씨로는 정당화되기 어려워요.\n\n운동하러 가볼까요?"
+                    )
 
-                        message = REJECTION_MESSAGES.get(
-                            reason_key,
-                            "❌ 주장하신 날씨 사유가 현재 기상 데이터와 일치하지 않습니다.\n\n날씨가 운동을 막은 건 아닌 것 같아요."
-                        )
+                    exc_row_id = db.add_excuse_log(log_id, excuse_text, excuse_type, confidence, reason, policy, eval_result.get("reason"))
+                    if not insight_shown and insight.get("escalate"):
+                        user_name = st.session_state.user.get("name", "사용자")
+                        msg = messaging.generate_escalation_message(user_name, excuse_type, insight.get("count"), insight.get("window_days"))
+                        st.warning(msg)
+                        insight_shown = True
+                else:
+                    st.info("오늘은 날씨가 운동하기에 부담스러웠을 수 있어요.")
+                    st.success("🏠 추천: 실내 스트레칭 10분")
+                    exc_row_id = db.add_excuse_log(log_id, excuse_text, excuse_type, confidence, reason, policy, eval_result.get("reason"))
+                    if not insight_shown and insight.get("escalate"):
+                        user_name = st.session_state.user.get("name", "사용자")
+                        msg = messaging.generate_escalation_message(user_name, excuse_type, insight.get("count"), insight.get("window_days"))
+                        st.warning(msg)
+                        insight_shown = True
 
-                        st.error(message)
-                        st.success(
-                            "👉 이 핑계는 날씨로는 정당화되기 어려워요.\n\n"
-                            "운동하러 가볼까요?"
-                        )
+            # TIME_CHECK
+            elif policy == "TIME_CHECK":
+                time_eval = evaluate_time_excuse(start_time_str, duration_min, excuse_text)
 
-                        # persist excuse log with judgment
-                        db.add_excuse_log(log_id, excuse, excuse_type, confidence, reason, policy, eval_result.get("reason"))
-                    # ✅ 합당한 날씨
-                    else:
-                        st.info(
-                            "오늘은 날씨가 운동하기에 부담스러웠을 수 있어요."
-                        )
-                        st.success("🏠 추천: 실내 스트레칭 10분")
-                        db.add_excuse_log(log_id, excuse, excuse_type, confidence, reason, policy, eval_result.get("reason"))
+                if time_eval["valid"] is None:
+                    st.warning("⏰ 일정 확인이 불가능하거나 시간 관련 사유가 아닙니다.")
+                    exc_row_id = db.add_excuse_log(log_id, excuse_text, excuse_type, confidence, reason, policy, "inconclusive")
+                    if not insight_shown and insight.get("escalate"):
+                        user_name = st.session_state.user.get("name", "사용자")
+                        msg = messaging.generate_escalation_message(user_name, excuse_type, insight.get("count"), insight.get("window_days"))
+                        st.warning(msg)
+                        insight_shown = True
 
-                # =======================
-                # TIME_CHECK: 캘린더 기반 일정 확인
-                # =======================
-                elif policy == "TIME_CHECK":
-                    time_eval = evaluate_time_excuse(today_start_time_str, today_duration, excuse)
-
-                    if time_eval["valid"] is None:
-                        # 캘린더 연동 불가 또는 시간 관련 핑계 아님
-                        st.warning("⏰ 일정 확인이 불가능하거나 시간 관련 사유가 아닙니다.")
-                        db.add_excuse_log(log_id, excuse, excuse_type, confidence, reason, policy, "inconclusive")
-
-                    elif time_eval["valid"]:
-                        # 실제 일정 충돌 있음 -> 인정
-                        st.info("📅 캘린더에 일정이 있었네요. 바쁜 하루였겠어요.")
-                        st.success("🕐 다른 시간대에 운동을 해볼까요? 또는 내일을 기대해요!")
-                        db.add_excuse_log(log_id, excuse, excuse_type, confidence, reason, policy, time_eval.get("reason"))
-
-                    else:
-                        # 일정 충돌 없음 -> 거짓 핑계
-                        st.error("❌ 운동 시간에 캘린더 일정이 없습니다.\n\n시간이 충분하셨을 것 같아요.")
-                        st.success("👉 이 핑계는 일정으로는 정당화되기 어려워요.\n\n운동하러 가볼까요?")
-                        db.add_excuse_log(log_id, excuse, excuse_type, confidence, reason, policy, "claimed_time_but_no_conflict")
-
-                elif policy == "LOW_INTENSITY":
-                    st.info("😮‍💨 컨디션이 낮은 날이에요. 5분만 움직여도 충분해요.")
-                    db.add_excuse_log(log_id, excuse, excuse_type, confidence, reason, policy, "low_intensity")
-
-                elif policy == "SAFE_SKIP":
-                    st.warning("🩺 건강 문제는 최우선이에요. 오늘은 쉬세요.")
-                    db.add_excuse_log(log_id, excuse, excuse_type, confidence, reason, policy, "safe_skip")
+                elif time_eval["valid"]:
+                    st.info("📅 캘린더에 일정이 있었네요. 바쁜 하루였겠어요.")
+                    st.success("🕐 다른 시간대에 운동을 해볼까요? 또는 내일을 기대해요!")
+                    exc_row_id = db.add_excuse_log(log_id, excuse_text, excuse_type, confidence, reason, policy, time_eval.get("reason"))
+                    if not insight_shown and insight.get("escalate"):
+                        user_name = st.session_state.user.get("name", "사용자")
+                        msg = messaging.generate_escalation_message(user_name, excuse_type, insight.get("count"), insight.get("window_days"))
+                        st.warning(msg)
+                        insight_shown = True
 
                 else:
-                    st.info("오늘을 돌아보고 내일을 준비해볼까요?")
-                    db.add_excuse_log(log_id, excuse, excuse_type, confidence, reason, policy, "neutral")
+                    st.error("❌ 운동 시간에 캘린더 일정이 없습니다.\n\n시간이 충분하셨을 것 같아요.")
+                    st.success("👉 이 핑계는 일정으로는 정당화되기 어려워요.\n\n운동하러 가볼까요?")
+                    exc_row_id = db.add_excuse_log(log_id, excuse_text, excuse_type, confidence, reason, policy, "claimed_time_but_no_conflict")
+                    if not insight_shown and insight.get("escalate"):
+                        user_name = st.session_state.user.get("name", "사용자")
+                        msg = messaging.generate_escalation_message(user_name, excuse_type, insight.get("count"), insight.get("window_days"))
+                        st.warning(msg)
+                        insight_shown = True
+
+            # LOW_INTENSITY -> 수면 데이터 기반 판단
+            elif policy == "LOW_INTENSITY":
+                sleep_eval = evaluate_sleep_excuse(user_id, excuse_text)
+                if sleep_eval["valid"] is None:
+                    st.info("컨디션 관련 사유로 보이나, 수면 데이터가 부족해 판단할 수 없습니다.")
+                    exc_row_id = db.add_excuse_log(log_id, excuse_text, excuse_type, confidence, reason, policy, sleep_eval.get("reason"))
+                    if not insight_shown and insight.get("escalate"):
+                        user_name = st.session_state.user.get("name", "사용자")
+                        msg = messaging.generate_escalation_message(user_name, excuse_type, insight.get("count"), insight.get("window_days"))
+                        st.warning(msg)
+                        insight_shown = True
+                elif sleep_eval["valid"]:
+                    st.info(f"😴 최근 평균 수면이 낮습니다 ({sleep_eval.get('avg_hours'):.1f}시간). 오늘은 저강도로 시작해도 괜찮아요.")
+                    st.success("추천: 저강도 10분 스트레칭")
+                    exc_row_id = db.add_excuse_log(log_id, excuse_text, excuse_type, confidence, reason, policy, sleep_eval.get("reason"))
+                    if not insight_shown and insight.get("escalate"):
+                        st.warning(f"⚠️ 최근 {insight.get('window_days')}일 동안 같은 핑계({excuse_type})가 {insight.get('count')}회 발견되었습니다. 더 강하게 권유합니다.")
+                        insight_shown = True
+                else:
+                    st.error(f"❌ 수면 데이터로는 피로로 보기 어렵습니다 (평균 {sleep_eval.get('avg_hours'):.1f}시간). 잠깐 몸을 움직여볼까요?")
+                    db.add_excuse_log(log_id, excuse_text, excuse_type, confidence, reason, policy, sleep_eval.get("reason"))
+
+            elif policy == "SAFE_SKIP":
+                st.warning("🩺 건강 문제는 최우선이에요. 오늘은 쉬세요.")
+                exc_row_id = db.add_excuse_log(log_id, excuse_text, excuse_type, confidence, reason, policy, "safe_skip")
+                if not insight_shown and insight.get("escalate"):
+                    user_name = st.session_state.user.get("name", "사용자")
+                    msg = messaging.generate_escalation_message(user_name, excuse_type, insight.get("count"), insight.get("window_days"))
+                    st.warning(msg)
+                    insight_shown = True
+
+            else:
+                st.info("오늘을 돌아보고 내일을 준비해볼까요?")
+                exc_row_id = db.add_excuse_log(log_id, excuse_text, excuse_type, confidence, reason, policy, "neutral")
+                if not insight_shown and insight.get("escalate"):
+                    user_name = st.session_state.user.get("name", "사용자")
+                    msg = messaging.generate_escalation_message(user_name, excuse_type, insight.get("count"), insight.get("window_days"))
+                    st.warning(msg)
+                    insight_shown = True
+
+        # 이미 오늘 기록함
+        if st.session_state.last_check_date == today:
+            st.info("✅ 오늘 운동 여부는 이미 기록했어요.")
 
         else:
-            if st.session_state.last_check_date == today:
-                st.info("✅ 오늘 운동 여부는 이미 기록했어요.")
+            # 아직 운동 시작 전: 미리 했는지 확인 가능
+            if now < exercise_time_today:
+                st.info("⏳ 아직 운동 시작 전이에요. 미리 하셨나요?")
+                did_ex_before = st.radio(
+                    "오늘 운동 하셨나요?",
+                    ["선택", "했어요", "못 했어요"],
+                    key="did_pre"
+                )
+
+                user_id = st.session_state.user.get("id") or db.ensure_user(st.session_state.user.get("name", "unknown"))
+                st.session_state.user["id"] = user_id
+
+                if did_ex_before == "했어요":
+                    st.success("🔥 이미 운동하셨군요! 멋져요.")
+                    st.session_state.last_check_date = today
+                    db.add_exercise_log(user_id, today.isoformat(), True)
+                elif did_ex_before == "못 했어요":
+                    excuse_pre = st.text_input("❓ 왜 못 하셨나요?", key="excuse_pre")
+                    if excuse_pre:
+                        st.session_state.last_check_date = today
+                        process_excuse_submission(excuse_pre, user_id, today_start_time_str, today_duration)
+
+            # 운동 시간(시작 ~ 종료) 도중: 체크 UI 노출
+            elif exercise_time_today <= now <= exercise_end_time_today:
+                st.warning("⏰ 지금은 운동 시간이에요!")
+                did_exercise = st.radio(
+                    "오늘 운동 하셨나요?",
+                    ["선택", "했어요", "못 했어요"],
+                    key="did_during"
+                )
+
+                user_id = st.session_state.user.get("id") or db.ensure_user(st.session_state.user.get("name", "unknown"))
+                st.session_state.user["id"] = user_id
+
+                if did_exercise == "했어요":
+                    st.success("🔥 오늘 운동 완료! 잘하셨어요.")
+                    st.session_state.last_check_date = today
+                    db.add_exercise_log(user_id, today.isoformat(), True)
+
+                elif did_exercise == "못 했어요":
+                    excuse = st.text_input("❓ 왜 못 하셨나요?", key="excuse_during")
+                    if excuse:
+                        st.session_state.last_check_date = today
+                        process_excuse_submission(excuse, user_id, today_start_time_str, today_duration)
+
+            # 운동 시간이 이미 지남: 여전히 물어보고 핑계 받기
             else:
-                st.info("⏳ 아직 운동 시간이 아니에요.")
+                st.warning("⚠️ 오늘의 운동 시간이 지났습니다. 기록을 놓치셨을 수 있어요.")
+                did_ex_after = st.radio(
+                    "오늘 운동 하셨나요?",
+                    ["선택", "했어요", "못 했어요"],
+                    key="did_post"
+                )
+
+                user_id = st.session_state.user.get("id") or db.ensure_user(st.session_state.user.get("name", "unknown"))
+                st.session_state.user["id"] = user_id
+
+                if did_ex_after == "했어요":
+                    st.success("🔥 오늘 운동 완료! 기록을 남겨둘게요.")
+                    st.session_state.last_check_date = today
+                    db.add_exercise_log(user_id, today.isoformat(), True)
+                elif did_ex_after == "못 했어요":
+                    excuse_post = st.text_input("❓ 왜 못 하셨나요?", key="excuse_post")
+                    if excuse_post:
+                        st.session_state.last_check_date = today
+                        process_excuse_submission(excuse_post, user_id, today_start_time_str, today_duration)

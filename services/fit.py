@@ -21,7 +21,7 @@ def generate_mock_sleep(days: int = 7, end_date: datetime = None) -> List[Dict]:
         night = end_date - timedelta(days=i)
         # assume sleep from 23:30 to 07:00 next day with small jitter
         start = datetime(night.year, night.month, night.day, 23, 30) - timedelta(minutes=(i % 3) * 10)
-        end = start + timedelta(hours=7, minutes=(i % 2) * 15)
+        end = start + timedelta(hours=6, minutes=(i % 2) * 15)
         sleeps.append({"start": start.isoformat(), "end": end.isoformat()})
 
     return sleeps
