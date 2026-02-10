@@ -31,7 +31,12 @@ def render_calendar_view(user_id: int, user_name: str, plan_days: list):
             st.rerun()
     
     with col3:
-        st.write(f"### {st.session_state.calendar_year}년 {st.session_state.calendar_month}월")
+        st.markdown(
+            f"<div style='text-align: center; font-size: 20px; font-weight: 600;'>"
+            f"{st.session_state.calendar_year}년 {st.session_state.calendar_month}월"
+            f"</div>",
+            unsafe_allow_html=True
+        )
     
     with col5:
         if st.button("다음 ▶"):
@@ -60,11 +65,10 @@ def render_calendar_view(user_id: int, user_name: str, plan_days: list):
     col_headers = st.columns(7)
     for i, name in enumerate(WEEKDAY_NAMES):
         with col_headers[i]:
-            is_plan_day = name in plan_days
-            if is_plan_day:
-                st.markdown(f"### **{name}** 💪")
-            else:
-                st.markdown(f"### {name}")
+            st.markdown(
+                f"<div style='text-align: center; font-weight: 600;'>{name}</div>",
+                unsafe_allow_html=True
+            )
     
     st.divider()
     
@@ -89,39 +93,44 @@ def render_calendar_view(user_id: int, user_name: str, plan_days: list):
                     if is_plan_day:
                         # 계획 요일: 운동 여부 표시
                         if did_exercise is None:
-                            # 기록 없음
+                            # 기록 없음 (계획 요일 강조)
                             st.markdown(f"""
-                            <div style='background-color: #e8f5e9; padding: 10px; border-radius: 5px; text-align: center; min-height: 60px; display: flex; align-items: center; justify-content: center;'>
-                                <span style='font-size: 28px;'>⭕</span>
+                            <div style='border: 1px solid #e0e0e0; background-color: #f1f8e9; padding: 6px; border-radius: 6px; text-align: center; min-height: 60px;'>
+                                <div style='font-size: 12px; color: #666;'>{day}</div>
+                                <div style='font-size: 24px; margin-top: 4px;'>•</div>
                             </div>
                             """, unsafe_allow_html=True)
                         elif did_exercise == 1:
                             # 운동 완료
                             st.markdown(f"""
-                            <div style='background-color: #c8e6c9; padding: 10px; border-radius: 5px; text-align: center; min-height: 60px; display: flex; align-items: center; justify-content: center;'>
-                                <span style='font-size: 28px;'>✅</span>
+                            <div style='background-color: #c8e6c9; border: 1px solid #c8e6c9; padding: 6px; border-radius: 6px; text-align: center; min-height: 60px;'>
+                                <div style='font-size: 12px; color: #2e7d32;'>{day}</div>
+                                <div style='font-size: 24px; margin-top: 4px;'>✅</div>
                             </div>
                             """, unsafe_allow_html=True)
                         else:
                             # 핑계 댐
                             st.markdown(f"""
-                            <div style='background-color: #ffcdd2; padding: 10px; border-radius: 5px; text-align: center; min-height: 60px; display: flex; align-items: center; justify-content: center;'>
-                                <span style='font-size: 28px;'>❌</span>
+                            <div style='background-color: #ffcdd2; border: 1px solid #ffcdd2; padding: 6px; border-radius: 6px; text-align: center; min-height: 60px;'>
+                                <div style='font-size: 12px; color: #c62828;'>{day}</div>
+                                <div style='font-size: 24px; margin-top: 4px;'>❌</div>
                             </div>
                             """, unsafe_allow_html=True)
                     else:
                         # 비계획 요일: 운동하면 보너스(✅), 아니면 표시 안 함
                         if did_exercise == 1:
                             st.markdown(f"""
-                            <div style='background-color: #b3e5fc; padding: 10px; border-radius: 5px; text-align: center; min-height: 60px; display: flex; align-items: center; justify-content: center;'>
-                                <span style='font-size: 28px;'>🎁</span>
+                            <div style='background-color: #b3e5fc; border: 1px solid #b3e5fc; padding: 6px; border-radius: 6px; text-align: center; min-height: 60px;'>
+                                <div style='font-size: 12px; color: #0277bd;'>{day}</div>
+                                <div style='font-size: 24px; margin-top: 4px;'>🎁</div>
                             </div>
                             """, unsafe_allow_html=True)
                         else:
-                            # 기록 없음 (계획 요일이 아니므로 괜찮음)
+                            # 기록 없음 (비계획 요일은 날짜만 표시)
                             st.markdown(f"""
-                            <div style='padding: 10px; border-radius: 5px; text-align: center; min-height: 60px; display: flex; align-items: center; justify-content: center;'>
-                                <span style='font-size: 28px;'>⚪</span>
+                            <div style='border: 1px solid #e0e0e0; padding: 6px; border-radius: 6px; text-align: center; min-height: 60px;'>
+                                <div style='font-size: 12px; color: #666;'>{day}</div>
+                                <div style='font-size: 24px; margin-top: 4px;'>&nbsp;</div>
                             </div>
                             """, unsafe_allow_html=True)
     
