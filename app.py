@@ -18,6 +18,7 @@ import db
 from services import fit
 from services import insights
 from services import messaging
+from services.plan_evaluator import evaluate_plan
 
 load_dotenv()
 
@@ -320,6 +321,15 @@ if not st.session_state.onboarded:
             user_id = db.ensure_user(name, height_cm, weight_kg, goal)
             st.session_state.user["id"] = user_id
             db.set_schedules(user_id, schedules)
+            # 1회성 평가 결과 저장 (메인 화면에서만 노출)
+            st.session_state.plan_eval_result = evaluate_plan(
+                height_cm=height_cm,
+                weight_kg=weight_kg,
+                exercise_days=selected_days,
+                schedules=schedules,
+                goal=goal,
+            )
+            st.session_state.plan_eval_shown = False
             st.session_state.onboarded = True
             st.rerun()
 
@@ -338,6 +348,31 @@ else:
     for day, sched in schedules.items():
         st.write(f"  - {day}: {sched['start_time']} ({sched['duration']}분)")
     st.divider()
+
+    # AI 운동 계획 진단 (1회성 피드백)
+    plan_eval = st.session_state.get("plan_eval_result")
+    if plan_eval and not st.session_state.get("plan_eval_shown", False):
+        st.subheader("AI 운동 계획 진단")
+        status = plan_eval.get("status")
+        summary = plan_eval.get("summary", "")
+        suggestion = plan_eval.get("suggestion", "")
+
+        coach_lines = {
+            "insufficient": "조금만 보완하면 훨씬 탄탄한 계획이 될 수 있어요.",
+            "adequate": "지금 계획은 좋은 균형을 갖추고 있어요.",
+            "excessive": "열정이 느껴지는 계획이에요. 페이스를 조절해도 좋아요.",
+        }
+        message = f"{coach_lines.get(status, '')}\n\n{summary}\n\n{suggestion}"
+
+        if status == "adequate":
+            st.success(message)
+        elif status == "excessive":
+            st.info(message)
+        else:
+            st.warning(message)
+
+        st.session_state.plan_eval_shown = True
+        st.session_state.pop("plan_eval_result", None)
 
     # 탭 메뉴
     tab1, tab2 = st.tabs(["🏋️ 오늘의 운동", "📊 운동 기록"])
