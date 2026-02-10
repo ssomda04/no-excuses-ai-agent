@@ -122,14 +122,17 @@ def evaluate_weather_excuse(user_excuse_text, weather_fact):
             # dust check: look for keywords in description (best-effort)
             if not any(d in weather_fact.get("desc", "") for d in ["먼지", "dust", "황사"]):
                 return {"valid": False, "reason": "claimed_dust_but_no_evidence"}
-        if cond == "cold" and not (weather_fact.get("temp") is not None and weather_fact.get("temp") <= -5):
+        if cond == "cold" and not (weather_fact.get("temp") is not None and weather_fact.get("temp") <= 0):
             return {"valid": False, "reason": "claimed_cold_but_not_cold"}
-        if cond == "hot" and not (weather_fact.get("temp") is not None and weather_fact.get("temp") >= 33):
+        if cond == "hot" and not (weather_fact.get("temp") is not None and weather_fact.get("temp") >= 30):
             return {"valid": False, "reason": "claimed_hot_but_not_hot"}
 
     # If any actual adverse condition exists, accept as valid
-    if weather_fact.get("temp") is not None and weather_fact.get("temp") <= -5:
+    if weather_fact.get("temp") is not None and weather_fact.get("temp") <= 0:
         return {"valid": True, "reason": "too_cold"}
+
+    if weather_fact.get("temp") is not None and weather_fact.get("temp") >= 30:
+        return {"valid": True, "reason": "too_hot"}
 
     if any([weather_fact.get("rain"), weather_fact.get("snow"), weather_fact.get("wind")]):
         return {"valid": True, "reason": "actual_bad_weather"}
@@ -500,11 +503,19 @@ else:
                 action_box = st.container(border=True)
 
                 # WEATHER_CHECK
-                def show_indoor_links():
-                    st.info("실내에서라도 몸을 조금이라도 움직이면 건강에 큰 도움이 됩니다!")
-                    st.markdown("**실내운동 참고 영상:**")
-                    for v in INDOOR_EXERCISE_LINKS:
-                        st.markdown(f"- [{v['title']}]({v['url']})")
+                def show_indoor_links(container=None):
+                    if container is None:
+                        st.info("실내에서라도 몸을 조금이라도 움직이면 건강에 큰 도움이 됩니다!")
+                        st.markdown("**실내운동 참고 영상:**")
+                        for v in INDOOR_EXERCISE_LINKS:
+                            st.markdown(f"- [{v['title']}]({v['url']})")
+                        return
+
+                    with container:
+                        st.info("실내에서라도 몸을 조금이라도 움직이면 건강에 큰 도움이 됩니다!")
+                        st.markdown("**실내운동 참고 영상:**")
+                        for v in INDOOR_EXERCISE_LINKS:
+                            st.markdown(f"- [{v['title']}]({v['url']})")
 
                 if policy == "WEATHER_CHECK":
                     weather_fact = get_weather_fact()
@@ -554,7 +565,7 @@ else:
                         with action_box:
                             st.subheader("👉 AI의 제안")
                             st.success("실내에서 가볍게 스트레칭부터 시작해볼까요?")
-                            show_indoor_links()
+                            show_indoor_links(action_box)
                         exc_row_id, insight_shown = persist_excuse_and_maybe_show_insight(
                             log_id,
                             excuse_text,
@@ -642,7 +653,7 @@ else:
                         with action_box:
                             st.subheader("👉 AI의 제안")
                             st.success("오늘은 몸 상태를 우선해 휴식하거나, 저강도로 짧게 움직여보세요.")
-                            show_indoor_links()
+                            show_indoor_links(action_box)
                         exc_row_id, insight_shown = persist_excuse_and_maybe_show_insight(
                             log_id,
                             excuse_text,
@@ -661,7 +672,7 @@ else:
                         with action_box:
                             st.subheader("👉 AI의 제안")
                             st.success("오늘은 휴식을 택하거나, 저강도로 10분만 움직여보는 것도 좋아요.")
-                            show_indoor_links()
+                            show_indoor_links(action_box)
                         exc_row_id, insight_shown = persist_excuse_and_maybe_show_insight(
                             log_id,
                             excuse_text,
