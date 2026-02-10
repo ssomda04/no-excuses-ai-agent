@@ -7,18 +7,25 @@ DB_PATH = os.path.join(os.path.dirname(__file__), "data.db")
 
 
 def _connect():
-    return sqlite3.connect(DB_PATH)
+    # allow a longer timeout and permit cross-thread usage in Streamlit reruns
+    return sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
 
 
 def init_db():
     conn = _connect()
     cur = conn.cursor()
+    # enable WAL to reduce "database is locked" during concurrent reads/writes
+    cur.execute("PRAGMA journal_mode=WAL;")
+    cur.execute("PRAGMA synchronous=NORMAL;")
 
     cur.execute(
         """
     CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY,
         name TEXT UNIQUE,
+        height_cm REAL,
+        weight_kg REAL,
+        goal TEXT,
         created_at TEXT
     )
     """
@@ -85,16 +92,30 @@ def init_db():
     conn.close()
 
 
-def ensure_user(name: str) -> int:
+
+def ensure_user(name: str, height_cm: float = None, weight_kg: float = None, goal: str = None) -> int:
+    """
+    사용자 정보가 없으면 생성, 있으면 id만 반환. height_cm, weight_kg, goal이 주어지면 업데이트.
+    """
     conn = _connect()
     cur = conn.cursor()
     cur.execute("SELECT id FROM users WHERE name = ?", (name,))
     row = cur.fetchone()
     if row:
         user_id = row[0]
+        # 값이 주어지면 업데이트
+        if any([height_cm is not None, weight_kg is not None, goal is not None]):
+            cur.execute(
+                "UPDATE users SET height_cm = COALESCE(?, height_cm), weight_kg = COALESCE(?, weight_kg), goal = COALESCE(?, goal) WHERE id = ?",
+                (height_cm, weight_kg, goal, user_id)
+            )
+            conn.commit()
     else:
         now = datetime.utcnow().isoformat()
-        cur.execute("INSERT INTO users (name, created_at) VALUES (?, ?)", (name, now))
+        cur.execute(
+            "INSERT INTO users (name, height_cm, weight_kg, goal, created_at) VALUES (?, ?, ?, ?, ?)",
+            (name, height_cm, weight_kg, goal, now)
+        )
         user_id = cur.lastrowid
         conn.commit()
     conn.close()
@@ -190,3 +211,66 @@ def get_recent_sleep_logs(user_id: int, limit: int = 10):
     rows = cur.fetchall()
     conn.close()
     return rows
+
+
+def get_exercise_logs_by_month(user_id: int, year: int, month: int):
+    """
+    특정 월의 모든 운동 기록 조회
+    반환: [(date, did_exercise), ...]
+    """
+    conn = _connect()
+    cur = conn.cursor()
+    
+    month_start = f"{year:04d}-{month:02d}-01"
+    if month == 12:
+        month_end = f"{year+1:04d}-01-01"
+    else:
+        month_end = f"{year:04d}-{month+1:02d}-01"
+    
+    cur.execute(
+        """
+        SELECT date, did_exercise FROM exercise_logs 
+        WHERE user_id = ? AND date >= ? AND date < ?
+        ORDER BY date
+        """,
+        (user_id, month_start, month_end),
+    )
+    rows = cur.fetchall()
+    conn.close()
+    return rows
+
+
+def get_excuse_summary_by_month(user_id: int, year: int, month: int):
+    """
+    특정 월의 핑계 기록 요약 (날짜별 핑계 유형 및 개수)
+    반환: {date: [excuse_type, ...], ...}
+    """
+    conn = _connect()
+    cur = conn.cursor()
+    
+    month_start = f"{year:04d}-{month:02d}-01"
+    if month == 12:
+        month_end = f"{year+1:04d}-01-01"
+    else:
+        month_end = f"{year:04d}-{month+1:02d}-01"
+    
+    cur.execute(
+        """
+        SELECT xl.date, el.excuse_type 
+        FROM excuse_logs el
+        JOIN exercise_logs xl ON el.log_id = xl.id
+        WHERE xl.user_id = ? AND xl.date >= ? AND xl.date < ?
+        ORDER BY xl.date
+        """,
+        (user_id, month_start, month_end),
+    )
+    rows = cur.fetchall()
+    conn.close()
+    
+    result = {}
+    for date, excuse_type in rows:
+        if date not in result:
+            result[date] = []
+        result[date].append(excuse_type)
+    
+    return result

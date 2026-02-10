@@ -56,8 +56,7 @@ def top_excuses(user_id: int, window_days: int = 14, limit: int = 5):
 def seed_repeated_excuses(user_id: int, excuse_type: str, count: int = 3, span_days: int = 14):
     """
     시연용: 최근 `span_days` 범위에 걸쳐 동일한 `excuse_type`의 excuse_logs를 `count`개 생성합니다.
-    - exercise_logs는 날짜별로 `db.add_exercise_log`를 호출해 확보합니다.
-    - excuse_logs는 직접 삽입하여 `created_at`을 과거로 설정합니다.
+    - 모든 DB 작업을 한 연결에서 처리하여 "database is locked" 방지.
     반환: 생성된 레코드 수
     """
     conn = db._connect()
@@ -73,9 +72,19 @@ def seed_repeated_excuses(user_id: int, excuse_type: str, count: int = 3, span_d
             days_ago = 0
 
         created_at = (now - timedelta(days=days_ago)).isoformat()
-        # ensure there is an exercise_log for that date
         target_date = (date.today() - timedelta(days=days_ago)).isoformat()
-        log_id = db.add_exercise_log(user_id, target_date, False)
+        
+        # Inline exercise_log insertion to avoid nested DB calls
+        cur.execute("SELECT id FROM exercise_logs WHERE user_id = ? AND date = ?", (user_id, target_date))
+        row = cur.fetchone()
+        if row:
+            log_id = row[0]
+        else:
+            cur.execute(
+                "INSERT INTO exercise_logs (user_id, date, did_exercise, created_at) VALUES (?, ?, ?, ?)",
+                (user_id, target_date, 0, created_at),
+            )
+            log_id = cur.lastrowid
 
         raw_text = f"demo_seed_{excuse_type}"
         confidence = 0.9
