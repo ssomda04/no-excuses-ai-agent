@@ -368,12 +368,39 @@ else:
 
     st.subheader(f"💪 {user['name']}님의 운동 플랜")
     st.write(f"- 📅 요일: {', '.join(plan['days'])}")
-    
+
     # 요일별 스케줄 표시
     schedules = plan.get("schedules", {})
     for day, sched in schedules.items():
         st.write(f"  - {day}: {sched['start_time']} ({sched['duration']}분)")
     st.divider()
+
+    now = datetime.now()
+    today = date.today()
+    today_weekday = WEEKDAY_MAP[now.weekday()]
+    is_exercise_day = today_weekday in plan["days"]
+    today_schedule = schedules.get(today_weekday, None)
+
+    user_id = st.session_state.user.get("id") or db.ensure_user(st.session_state.user.get("name", "unknown"))
+    st.session_state.user["id"] = user_id
+    sleeps = db.get_recent_sleep_logs(user_id, limit=10)
+
+    with st.container(border=True):
+        st.subheader("📅 오늘의 상태 요약")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("오늘 요일", today_weekday)
+            st.metric("운동 예정", "O" if is_exercise_day else "X")
+        with col2:
+            if today_schedule:
+                st.metric("운동 시간", today_schedule["start_time"])
+                st.metric("운동 길이", f"{today_schedule['duration']}분")
+            else:
+                st.metric("운동 시간", "-")
+                st.metric("운동 길이", "-")
+        with col3:
+            sleep_summary = "있음" if sleeps else "없음"
+            st.metric("수면 데이터", sleep_summary)
 
     # AI 운동 계획 진단 (1회성 피드백)
     plan_eval = st.session_state.get("plan_eval_result")
@@ -410,371 +437,387 @@ else:
             st.rerun()
 
     # 탭 메뉴
-    tab1, tab2 = st.tabs(["🏋️ 오늘의 운동", "📊 운동 기록"])
+    tab_action, tab_history = st.tabs(["🏋️ 오늘의 선택", "📊 기록 & 패턴"])
 
-    with tab1:
-        now = datetime.now()
-        today = date.today()
-        today_weekday = WEEKDAY_MAP[now.weekday()]
-        is_exercise_day = today_weekday in plan["days"]
+    with tab_action:
+        with st.container(border=True):
+            st.subheader("❓ 오늘 운동하셨나요?")
 
-        # 오늘의 운동 스케줄 가져오기
-        today_schedule = schedules.get(today_weekday, None)
+        if not is_exercise_day:
+            st.info(f"📌 오늘은 운동 요일이 아니에요 ({today_weekday}). 하지만 운동하면 보너스입니다! 💪")
 
-        # 수면 데이터 섹션
-        st.subheader("🛌 수면 데이터 (데모)")
-        col_a, col_b = st.columns(2)
-        with col_a:
-            uploaded = st.file_uploader("수면 CSV 업로드 (start,end)", type=["csv"]) 
-        if uploaded is not None:
-            parsed = fit.parse_sleep_csv(uploaded)
-            if parsed:
-                user_id = st.session_state.user.get("id") or db.ensure_user(st.session_state.user.get("name", "unknown"))
-                for s in parsed:
-                    db.add_sleep_log(user_id, s["start"], s["end"], source="upload")
-                st.success(f"{len(parsed)}개의 수면 레코드를 저장했습니다.")
-            else:
-                st.warning("CSV를 파싱할 수 없거나 형식이 맞지 않습니다.")
-    with col_b:
-        if st.button("샘플 수면 데이터 불러오기"):
-            sample = fit.generate_mock_sleep(7)
-            user_id = st.session_state.user.get("id") or db.ensure_user(st.session_state.user.get("name", "unknown"))
-            for s in sample:
-                db.add_sleep_log(user_id, s["start"], s["end"], source="mock")
-            st.success("샘플 수면데이터 7개가 저장되었습니다.")
+            did_ex_off_day = st.radio(
+                "",
+                ["선택", "했어요", "못 했어요"],
+                key="did_off_day",
+                horizontal=True
+            )
 
-        with st.expander("🧪 데모 도구"):
-            st.write("테스트용으로 동일한 유형의 핑계를 과거 날짜에 생성합니다.")
-            demo_excuse_type = st.selectbox("핑계 유형 선택", list(EXCUSE_POLICY.keys()), index=0)
-            demo_count = st.number_input("몇 회 생성할까요?", min_value=1, max_value=20, value=3)
-            demo_span = st.number_input("몇 일 범위에 분산할까요?", min_value=1, max_value=90, value=14)
-            if st.button("데모: 동일 핑계 생성"):
-                user_id = st.session_state.user.get("id") or db.ensure_user(st.session_state.user.get("name", "unknown"))
-                created = insights.seed_repeated_excuses(user_id, demo_excuse_type, int(demo_count), int(demo_span))
-                st.success(f"{created}개의 시연용 핑계가 생성되었습니다.\n\n💡 팁: 이제 아래 '핑계 제출' 섹션에서 '{demo_excuse_type}' 핑계를 입력하면, DB에 기록된 반복 패턴을 확인할 수 있습니다.")
+            if did_ex_off_day == "했어요":
+                st.success("🎁 보너스 운동! 멋져요!")
+                st.session_state.last_check_date = today
+                db.add_exercise_log(user_id, today.isoformat(), True)
+            elif did_ex_off_day == "못 했어요":
+                st.info("👍 괜찮아요. 내일 기대할게요!")
+                st.session_state.last_check_date = today
+                db.add_exercise_log(user_id, today.isoformat(), False)
 
-    # 최근 수면 레코드 표시
-    user_id = st.session_state.user.get("id") or db.ensure_user(st.session_state.user.get("name", "unknown"))
-    sleeps = db.get_recent_sleep_logs(user_id, limit=10)
-    if sleeps:
-        st.write("최근 수면 기록:")
-        for r in sleeps:
-            st.write(f"- {r[1]} → {r[2]} (src: {r[3]})")
-
-    if not is_exercise_day:
-        st.info(f"📌 오늘은 운동 요일이 아니에요 ({today_weekday}). 하지만 운동하면 보너스입니다! 💪")
-        
-        # 비운동 요일도 운동 여부는 물어보기
-        did_ex_off_day = st.radio(
-            "오늘 운동 하셨나요?",
-            ["선택", "했어요", "못 했어요"],
-            key="did_off_day"
-        )
-        
-        user_id = st.session_state.user.get("id") or db.ensure_user(st.session_state.user.get("name", "unknown"))
-        st.session_state.user["id"] = user_id
-        
-        if did_ex_off_day == "했어요":
-            st.success("🎁 보너스 운동! 멋져요!")
-            st.session_state.last_check_date = today
-            db.add_exercise_log(user_id, today.isoformat(), True)
-        elif did_ex_off_day == "못 했어요":
-            st.info("👍 괜찮아요. 내일 기대할게요!")
-            st.session_state.last_check_date = today
-            db.add_exercise_log(user_id, today.isoformat(), False)
-
-    elif today_schedule is None:
-        st.warning(f"⚠️ 오늘({today_weekday})의 운동 스케줄이 없습니다.")
-
-    else:
-        today_start_time_str = today_schedule["start_time"]
-        today_duration = today_schedule["duration"]
-
-        exercise_time_today = datetime.strptime(
-            f"{today} {today_start_time_str}",
-            "%Y-%m-%d %H:%M"
-        )
-        exercise_end_time_today = exercise_time_today + timedelta(minutes=today_duration)
-
-        def process_excuse_submission(excuse_text, user_id, start_time_str, duration_min):
-            st.subheader("🧠 AI 분석 결과")
-
-            result = classify_excuse(excuse_text)
-            excuse_type = result["excuse_type"]
-            confidence = result["confidence"]
-            reason = result["reason"]
-
-            policy = EXCUSE_POLICY.get(excuse_type, "NEUTRAL_REFLECT")
-            # 인사이트(저장 전): 최근 반복 여부 확인(저장 전 집계)
-            insight = insights.repeated_excuse_insight(user_id, excuse_type)
-            insight_shown = False
-
-            # persist exercise log (did_exercise = False) and excuse
-            log_id = db.add_exercise_log(user_id, today.isoformat(), False)
-
-            st.write("📌 핑계 유형:", excuse_type)
-            st.write("🔍 확신도:", round(confidence, 2))
-            st.write("🧠 판단 근거:", reason)
-            st.write("🤖 적용 정책:", policy)
-            st.divider()
-
-            # WEATHER_CHECK
-            def show_indoor_links():
-                st.info("실내에서라도 몸을 조금이라도 움직이면 건강에 큰 도움이 됩니다!")
-                st.markdown("**실내운동 참고 영상:**")
-                for v in INDOOR_EXERCISE_LINKS:
-                    st.markdown(f"- [{v['title']}]({v['url']})")
-
-            if policy == "WEATHER_CHECK":
-                weather_fact = get_weather_fact()
-                eval_result = evaluate_weather_excuse(excuse_text, weather_fact)
-
-                st.subheader("🌤️ 실제 날씨 분석")
-                st.write(f"- 상태: {weather_fact['desc']}")
-                st.write(f"- 기온: {weather_fact['temp']}°C")
-                st.divider()
-
-                if not eval_result["valid"]:
-                    reason_key = eval_result.get("reason", "")
-                    REJECTION_MESSAGES = {
-                        "claimed_rain_but_no_rain": "❌ 비가 온다고 했지만 실제로는 비가 오지 않았어요.\n\n날씨가 운동을 막은 건 아니에요.",
-                        "claimed_snow_but_no_snow": "❌ 눈이 온다고 했지만 실제로는 눈이 오지 않았어요.\n\n날씨가 운동을 막은 건 아니에요.",
-                        "claimed_wind_but_no_wind": "❌ 바람이 심하다고 했지만, 현재 강풍 징후가 없어요.\n\n날씨가 운동을 막은 건 아니에요.",
-                        "claimed_dust_but_no_evidence": "❌ 미세먼지/황사로 운동을 못했다고 했지만, 현재 대기 상태에 근거가 없어요.\n\n날씨가 운동을 막은 건 아니에요.",
-                        "claimed_cold_but_not_cold": "❌ 너무 춥다고 하셨지만, 현재 기온은 매우 낮지 않아요.\n\n날씨가 운동을 막은 건 아니에요.",
-                        "claimed_hot_but_not_hot": "❌ 폭염이라고 했지만, 현재 온도는 폭염 수준이 아니에요.\n\n날씨가 운동을 막은 건 아니에요.",
-                    }
-
-                    message = REJECTION_MESSAGES.get(
-                        reason_key,
-                        "❌ 주장하신 날씨 사유가 현재 기상 데이터와 일치하지 않습니다.\n\n날씨가 운동을 막은 건 아닌 것 같아요."
-                    )
-
-                    st.error(message)
-                    st.success(
-                        "👉 이 핑계는 날씨로는 정당화되기 어려워요.\n\n운동하러 가볼까요?"
-                    )
-
-                    exc_row_id, insight_shown = persist_excuse_and_maybe_show_insight(
-                        log_id,
-                        excuse_text,
-                        excuse_type,
-                        confidence,
-                        reason,
-                        policy,
-                        eval_result.get("reason"),
-                        insight,
-                        insight_shown,
-                    )
-                else:
-                    st.info("오늘은 날씨가 운동하기에 부담스러웠을 수 있어요.")
-                    st.success("🏠 추천: 실내 스트레칭 10분")
-                    show_indoor_links()
-                    exc_row_id, insight_shown = persist_excuse_and_maybe_show_insight(
-                        log_id,
-                        excuse_text,
-                        excuse_type,
-                        confidence,
-                        reason,
-                        policy,
-                        eval_result.get("reason"),
-                        insight,
-                        insight_shown,
-                    )
-
-            # TIME_CHECK
-            elif policy == "TIME_CHECK":
-                time_eval = evaluate_time_excuse(start_time_str, duration_min, excuse_text)
-
-                if time_eval["valid"] is None:
-                    st.warning("⏰ 일정 확인이 불가능하거나 시간 관련 사유가 아닙니다.")
-                    exc_row_id, insight_shown = persist_excuse_and_maybe_show_insight(
-                        log_id,
-                        excuse_text,
-                        excuse_type,
-                        confidence,
-                        reason,
-                        policy,
-                        "inconclusive",
-                        insight,
-                        insight_shown,
-                    )
-
-                elif time_eval["valid"]:
-                    st.info("📅 캘린더에 일정이 있었네요. 바쁜 하루였겠어요.")
-                    suggested_start = time_eval.get("suggested_start")
-                    suggested_end = time_eval.get("suggested_end")
-                    if suggested_start and suggested_end:
-                        st.success(
-                            f"🕐 오늘 {suggested_start} 이후에 {duration_min}분 정도 운동하는 건 어떨까요? (예: {suggested_start}~{suggested_end})"
-                        )
-                    else:
-                        st.success("🕐 오늘 일정이 끝난 뒤, 같은 날 늦은 시간에 가볍게 움직여보는 건 어떨까요?")
-                    exc_row_id, insight_shown = persist_excuse_and_maybe_show_insight(
-                        log_id,
-                        excuse_text,
-                        excuse_type,
-                        confidence,
-                        reason,
-                        policy,
-                        time_eval.get("reason"),
-                        insight,
-                        insight_shown,
-                    )
-
-                else:
-                    st.error("❌ 운동 시간에 캘린더 일정이 없습니다.\n\n시간이 충분하셨을 것 같아요.")
-                    st.success("👉 이 핑계는 일정으로는 정당화되기 어려워요.\n\n운동하러 가볼까요?")
-                    exc_row_id, insight_shown = persist_excuse_and_maybe_show_insight(
-                        log_id,
-                        excuse_text,
-                        excuse_type,
-                        confidence,
-                        reason,
-                        policy,
-                        "claimed_time_but_no_conflict",
-                        insight,
-                        insight_shown,
-                    )
-
-            # LOW_INTENSITY -> 수면 데이터 기반 판단 (컨디션/체력/피곤함)
-            elif policy == "LOW_INTENSITY":
-                sleep_eval = evaluate_sleep_excuse(user_id, excuse_text)
-                if sleep_eval["valid"] is None:
-                    st.info("컨디션 관련 사유로 보이나, 수면 데이터가 부족해 판단할 수 없습니다.")
-                    st.success("오늘은 몸 상태를 우선해 휴식하거나, 저강도로 짧게 움직여보세요.")
-                    show_indoor_links()
-                    exc_row_id, insight_shown = persist_excuse_and_maybe_show_insight(
-                        log_id,
-                        excuse_text,
-                        excuse_type,
-                        confidence,
-                        reason,
-                        policy,
-                        sleep_eval.get("reason"),
-                        insight,
-                        insight_shown,
-                    )
-                elif sleep_eval["valid"]:
-                    st.info(f"😴 최근 평균 수면이 낮습니다 ({sleep_eval.get('avg_hours'):.1f}시간).")
-                    st.success("오늘은 휴식을 택하거나, 저강도로 10분만 움직여보는 것도 좋아요.")
-                    show_indoor_links()
-                    exc_row_id, insight_shown = persist_excuse_and_maybe_show_insight(
-                        log_id,
-                        excuse_text,
-                        excuse_type,
-                        confidence,
-                        reason,
-                        policy,
-                        sleep_eval.get("reason"),
-                        insight,
-                        insight_shown,
-                    )
-                else:
-                    st.info(f"수면 데이터 기준으로는 컨디션이 무리하지 않아도 되는 수준이에요 (평균 {sleep_eval.get('avg_hours'):.1f}시간).")
-                    st.success("가벼운 운동으로 기분 전환해볼까요?")
-                    exc_row_id, insight_shown = persist_excuse_and_maybe_show_insight(
-                        log_id,
-                        excuse_text,
-                        excuse_type,
-                        confidence,
-                        reason,
-                        policy,
-                        sleep_eval.get("reason"),
-                        insight,
-                        insight_shown,
-                    )
-
-            else:
-                st.info("기타 사유는 명확한 데이터 검증이 어려워 강한 개입 없이 사용자의 선택을 존중합니다.")
-                exc_row_id, insight_shown = persist_excuse_and_maybe_show_insight(
-                    log_id,
-                    excuse_text,
-                    excuse_type,
-                    confidence,
-                    reason,
-                    policy,
-                    "neutral",
-                    insight,
-                    insight_shown,
-                )
-
-        # 이미 오늘 기록함
-        if st.session_state.last_check_date == today:
-            st.info("✅ 오늘 운동 여부는 이미 기록했어요.")
+        elif today_schedule is None:
+            st.warning(f"⚠️ 오늘({today_weekday})의 운동 스케줄이 없습니다.")
 
         else:
-            # 아직 운동 시작 전: 미리 했는지 확인 가능
-            if now < exercise_time_today:
-                st.info("⏳ 아직 운동 시작 전이에요. 미리 하셨나요?")
-                did_ex_before = st.radio(
-                    "오늘 운동 하셨나요?",
-                    ["선택", "했어요", "못 했어요"],
-                    key="did_pre"
-                )
+            today_start_time_str = today_schedule["start_time"]
+            today_duration = today_schedule["duration"]
 
-                user_id = st.session_state.user.get("id") or db.ensure_user(st.session_state.user.get("name", "unknown"))
-                st.session_state.user["id"] = user_id
+            exercise_time_today = datetime.strptime(
+                f"{today} {today_start_time_str}",
+                "%Y-%m-%d %H:%M"
+            )
+            exercise_end_time_today = exercise_time_today + timedelta(minutes=today_duration)
 
-                if did_ex_before == "했어요":
-                    st.success("🔥 이미 운동하셨군요! 멋져요.")
-                    st.session_state.last_check_date = today
-                    db.add_exercise_log(user_id, today.isoformat(), True)
-                elif did_ex_before == "못 했어요":
-                    excuse_pre = st.text_input("❓ 왜 못 하셨나요?", key="excuse_pre")
-                    if excuse_pre:
-                        st.session_state.last_check_date = today
-                        process_excuse_submission(excuse_pre, user_id, today_start_time_str, today_duration)
+            def process_excuse_submission(excuse_text, user_id, start_time_str, duration_min):
+                result = classify_excuse(excuse_text)
+                excuse_type = result["excuse_type"]
+                confidence = result["confidence"]
+                reason = result["reason"]
 
-            # 운동 시간(시작 ~ 종료) 도중: 체크 UI 노출
-            elif exercise_time_today <= now <= exercise_end_time_today:
-                st.warning("⏰ 지금은 운동 시간이에요!")
-                did_exercise = st.radio(
-                    "오늘 운동 하셨나요?",
-                    ["선택", "했어요", "못 했어요"],
-                    key="did_during"
-                )
+                policy = EXCUSE_POLICY.get(excuse_type, "NEUTRAL_REFLECT")
+                # 인사이트(저장 전): 최근 반복 여부 확인(저장 전 집계)
+                insight = insights.repeated_excuse_insight(user_id, excuse_type)
+                insight_shown = False
 
-                user_id = st.session_state.user.get("id") or db.ensure_user(st.session_state.user.get("name", "unknown"))
-                st.session_state.user["id"] = user_id
+                # persist exercise log (did_exercise = False) and excuse
+                log_id = db.add_exercise_log(user_id, today.isoformat(), False)
 
-                if did_exercise == "했어요":
-                    st.success("🔥 오늘 운동 완료! 잘하셨어요.")
-                    st.session_state.last_check_date = today
-                    db.add_exercise_log(user_id, today.isoformat(), True)
+                with st.container(border=True):
+                    st.subheader("🧠 AI 핑계 분석")
+                    st.write(f"**유형:** {excuse_type}")
+                    st.progress(min(confidence, 1.0))
+                    st.caption(f"판단 근거: {reason}")
+                    st.caption(f"적용 정책: {policy}")
 
-                elif did_exercise == "못 했어요":
-                    excuse = st.text_input("❓ 왜 못 하셨나요?", key="excuse_during")
-                    if excuse:
-                        st.session_state.last_check_date = today
-                        process_excuse_submission(excuse, user_id, today_start_time_str, today_duration)
+                verify_box = st.container(border=True)
+                action_box = st.container(border=True)
 
-            # 운동 시간이 이미 지남: 여전히 물어보고 핑계 받기
+                # WEATHER_CHECK
+                def show_indoor_links():
+                    st.info("실내에서라도 몸을 조금이라도 움직이면 건강에 큰 도움이 됩니다!")
+                    st.markdown("**실내운동 참고 영상:**")
+                    for v in INDOOR_EXERCISE_LINKS:
+                        st.markdown(f"- [{v['title']}]({v['url']})")
+
+                if policy == "WEATHER_CHECK":
+                    weather_fact = get_weather_fact()
+                    eval_result = evaluate_weather_excuse(excuse_text, weather_fact)
+
+                    with verify_box:
+                        st.subheader("🔍 데이터 검증 결과")
+                        st.write(f"- 상태: {weather_fact['desc']}")
+                        st.write(f"- 기온: {weather_fact['temp']}°C")
+
+                    if not eval_result["valid"]:
+                        reason_key = eval_result.get("reason", "")
+                        REJECTION_MESSAGES = {
+                            "claimed_rain_but_no_rain": "❌ 비가 온다고 했지만 실제로는 비가 오지 않았어요.\n\n날씨가 운동을 막은 건 아니에요.",
+                            "claimed_snow_but_no_snow": "❌ 눈이 온다고 했지만 실제로는 눈이 오지 않았어요.\n\n날씨가 운동을 막은 건 아니에요.",
+                            "claimed_wind_but_no_wind": "❌ 바람이 심하다고 했지만, 현재 강풍 징후가 없어요.\n\n날씨가 운동을 막은 건 아니에요.",
+                            "claimed_dust_but_no_evidence": "❌ 미세먼지/황사로 운동을 못했다고 했지만, 현재 대기 상태에 근거가 없어요.\n\n날씨가 운동을 막은 건 아니에요.",
+                            "claimed_cold_but_not_cold": "❌ 너무 춥다고 하셨지만, 현재 기온은 매우 낮지 않아요.\n\n날씨가 운동을 막은 건 아니에요.",
+                            "claimed_hot_but_not_hot": "❌ 폭염이라고 했지만, 현재 온도는 폭염 수준이 아니에요.\n\n날씨가 운동을 막은 건 아니에요.",
+                        }
+
+                        message = REJECTION_MESSAGES.get(
+                            reason_key,
+                            "❌ 주장하신 날씨 사유가 현재 기상 데이터와 일치하지 않습니다.\n\n날씨가 운동을 막은 건 아닌 것 같아요."
+                        )
+
+                        with verify_box:
+                            st.error(message)
+                        with action_box:
+                            st.subheader("👉 AI의 제안")
+                            st.success("외부 조건은 문제 없어 보여요. 10분만 가볍게 시작해볼까요?")
+
+                        exc_row_id, insight_shown = persist_excuse_and_maybe_show_insight(
+                            log_id,
+                            excuse_text,
+                            excuse_type,
+                            confidence,
+                            reason,
+                            policy,
+                            eval_result.get("reason"),
+                            insight,
+                            insight_shown,
+                        )
+                    else:
+                        with verify_box:
+                            st.info("오늘은 날씨가 운동하기에 부담스러웠을 수 있어요.")
+                        with action_box:
+                            st.subheader("👉 AI의 제안")
+                            st.success("실내에서 가볍게 스트레칭부터 시작해볼까요?")
+                            show_indoor_links()
+                        exc_row_id, insight_shown = persist_excuse_and_maybe_show_insight(
+                            log_id,
+                            excuse_text,
+                            excuse_type,
+                            confidence,
+                            reason,
+                            policy,
+                            eval_result.get("reason"),
+                            insight,
+                            insight_shown,
+                        )
+
+                # TIME_CHECK
+                elif policy == "TIME_CHECK":
+                    time_eval = evaluate_time_excuse(start_time_str, duration_min, excuse_text)
+
+                    if time_eval["valid"] is None:
+                        with verify_box:
+                            st.subheader("🔍 데이터 검증 결과")
+                            st.warning("⏰ 일정 확인이 불가능하거나 시간 관련 사유가 아닙니다.")
+                        exc_row_id, insight_shown = persist_excuse_and_maybe_show_insight(
+                            log_id,
+                            excuse_text,
+                            excuse_type,
+                            confidence,
+                            reason,
+                            policy,
+                            "inconclusive",
+                            insight,
+                            insight_shown,
+                        )
+
+                    elif time_eval["valid"]:
+                        with verify_box:
+                            st.subheader("🔍 데이터 검증 결과")
+                            st.info("📅 캘린더에 일정이 있었네요. 바쁜 하루였겠어요.")
+                        suggested_start = time_eval.get("suggested_start")
+                        suggested_end = time_eval.get("suggested_end")
+                        with action_box:
+                            st.subheader("👉 AI의 제안")
+                            if suggested_start and suggested_end:
+                                st.success(
+                                    f"오늘 {suggested_start} 이후에 {duration_min}분 정도 운동하는 건 어떨까요? (예: {suggested_start}~{suggested_end})"
+                                )
+                            else:
+                                st.success("오늘 일정이 끝난 뒤, 같은 날 늦은 시간에 가볍게 움직여보는 건 어떨까요?")
+                        exc_row_id, insight_shown = persist_excuse_and_maybe_show_insight(
+                            log_id,
+                            excuse_text,
+                            excuse_type,
+                            confidence,
+                            reason,
+                            policy,
+                            time_eval.get("reason"),
+                            insight,
+                            insight_shown,
+                        )
+
+                    else:
+                        with verify_box:
+                            st.subheader("🔍 데이터 검증 결과")
+                            st.error("❌ 운동 시간에 캘린더 일정이 없습니다.\n\n시간이 충분하셨을 것 같아요.")
+                        with action_box:
+                            st.subheader("👉 AI의 제안")
+                            st.success("일정상 가능해 보여요. 10분만 가볍게 시작해볼까요?")
+                        exc_row_id, insight_shown = persist_excuse_and_maybe_show_insight(
+                            log_id,
+                            excuse_text,
+                            excuse_type,
+                            confidence,
+                            reason,
+                            policy,
+                            "claimed_time_but_no_conflict",
+                            insight,
+                            insight_shown,
+                        )
+
+                # LOW_INTENSITY -> 수면 데이터 기반 판단 (컨디션/체력/피곤함)
+                elif policy == "LOW_INTENSITY":
+                    sleep_eval = evaluate_sleep_excuse(user_id, excuse_text)
+                    if sleep_eval["valid"] is None:
+                        with verify_box:
+                            st.subheader("🔍 데이터 검증 결과")
+                            st.info("컨디션 관련 사유로 보이나, 수면 데이터가 부족해 판단할 수 없습니다.")
+                        with action_box:
+                            st.subheader("👉 AI의 제안")
+                            st.success("오늘은 몸 상태를 우선해 휴식하거나, 저강도로 짧게 움직여보세요.")
+                            show_indoor_links()
+                        exc_row_id, insight_shown = persist_excuse_and_maybe_show_insight(
+                            log_id,
+                            excuse_text,
+                            excuse_type,
+                            confidence,
+                            reason,
+                            policy,
+                            sleep_eval.get("reason"),
+                            insight,
+                            insight_shown,
+                        )
+                    elif sleep_eval["valid"]:
+                        with verify_box:
+                            st.subheader("🔍 데이터 검증 결과")
+                            st.info(f"😴 최근 평균 수면이 낮습니다 ({sleep_eval.get('avg_hours'):.1f}시간).")
+                        with action_box:
+                            st.subheader("👉 AI의 제안")
+                            st.success("오늘은 휴식을 택하거나, 저강도로 10분만 움직여보는 것도 좋아요.")
+                            show_indoor_links()
+                        exc_row_id, insight_shown = persist_excuse_and_maybe_show_insight(
+                            log_id,
+                            excuse_text,
+                            excuse_type,
+                            confidence,
+                            reason,
+                            policy,
+                            sleep_eval.get("reason"),
+                            insight,
+                            insight_shown,
+                        )
+                    else:
+                        with verify_box:
+                            st.subheader("🔍 데이터 검증 결과")
+                            st.info(f"수면 데이터 기준으로는 컨디션이 무리하지 않아도 되는 수준이에요 (평균 {sleep_eval.get('avg_hours'):.1f}시간).")
+                        with action_box:
+                            st.subheader("👉 AI의 제안")
+                            st.success("가벼운 운동으로 기분 전환해볼까요?")
+                        exc_row_id, insight_shown = persist_excuse_and_maybe_show_insight(
+                            log_id,
+                            excuse_text,
+                            excuse_type,
+                            confidence,
+                            reason,
+                            policy,
+                            sleep_eval.get("reason"),
+                            insight,
+                            insight_shown,
+                        )
+
+                else:
+                    with verify_box:
+                        st.subheader("🔍 데이터 검증 결과")
+                        st.info("기타 사유는 명확한 데이터 검증이 어려워 강한 개입 없이 사용자의 선택을 존중합니다.")
+                    with action_box:
+                        st.subheader("👉 AI의 제안")
+                        st.info("오늘 컨디션과 일정에 맞게 스스로 선택해도 괜찮아요.")
+                    exc_row_id, insight_shown = persist_excuse_and_maybe_show_insight(
+                        log_id,
+                        excuse_text,
+                        excuse_type,
+                        confidence,
+                        reason,
+                        policy,
+                        "neutral",
+                        insight,
+                        insight_shown,
+                    )
+
+            # 이미 오늘 기록함
+            if st.session_state.last_check_date == today:
+                st.info("✅ 오늘 운동 여부는 이미 기록했어요.")
+
             else:
-                st.warning("⚠️ 오늘의 운동 시간이 지났습니다. 기록을 놓치셨을 수 있어요.")
-                did_ex_after = st.radio(
-                    "오늘 운동 하셨나요?",
-                    ["선택", "했어요", "못 했어요"],
-                    key="did_post"
-                )
+                # 아직 운동 시작 전: 미리 했는지 확인 가능
+                if now < exercise_time_today:
+                    st.info("⏳ 아직 운동 시작 전이에요. 미리 하셨나요?")
+                    did_ex_before = st.radio(
+                        "",
+                        ["선택", "했어요", "못 했어요"],
+                        key="did_pre",
+                        horizontal=True
+                    )
 
-                user_id = st.session_state.user.get("id") or db.ensure_user(st.session_state.user.get("name", "unknown"))
-                st.session_state.user["id"] = user_id
-
-                if did_ex_after == "했어요":
-                    st.success("🔥 오늘 운동 완료! 기록을 남겨둘게요.")
-                    st.session_state.last_check_date = today
-                    db.add_exercise_log(user_id, today.isoformat(), True)
-                elif did_ex_after == "못 했어요":
-                    excuse_post = st.text_input("❓ 왜 못 하셨나요?", key="excuse_post")
-                    if excuse_post:
+                    if did_ex_before == "했어요":
+                        st.success("🔥 이미 운동하셨군요! 멋져요.")
                         st.session_state.last_check_date = today
-                        process_excuse_submission(excuse_post, user_id, today_start_time_str, today_duration)
+                        db.add_exercise_log(user_id, today.isoformat(), True)
+                    elif did_ex_before == "못 했어요":
+                        excuse_pre = st.text_input("❓ 왜 못 하셨나요?", key="excuse_pre")
+                        if excuse_pre:
+                            st.session_state.last_check_date = today
+                            process_excuse_submission(excuse_pre, user_id, today_start_time_str, today_duration)
 
-    # 탭2: 캘린더 뷰
-    with tab2:
+                # 운동 시간(시작 ~ 종료) 도중: 체크 UI 노출
+                elif exercise_time_today <= now <= exercise_end_time_today:
+                    st.warning("⏰ 지금은 운동 시간이에요!")
+                    did_exercise = st.radio(
+                        "",
+                        ["선택", "했어요", "못 했어요"],
+                        key="did_during",
+                        horizontal=True
+                    )
+
+                    if did_exercise == "했어요":
+                        st.success("🔥 오늘 운동 완료! 잘하셨어요.")
+                        st.session_state.last_check_date = today
+                        db.add_exercise_log(user_id, today.isoformat(), True)
+
+                    elif did_exercise == "못 했어요":
+                        excuse = st.text_input("❓ 왜 못 하셨나요?", key="excuse_during")
+                        if excuse:
+                            st.session_state.last_check_date = today
+                            process_excuse_submission(excuse, user_id, today_start_time_str, today_duration)
+
+                # 운동 시간이 이미 지남: 여전히 물어보고 핑계 받기
+                else:
+                    st.warning("⚠️ 오늘의 운동 시간이 지났습니다. 기록을 놓치셨을 수 있어요.")
+                    did_ex_after = st.radio(
+                        "",
+                        ["선택", "했어요", "못 했어요"],
+                        key="did_post",
+                        horizontal=True
+                    )
+
+                    if did_ex_after == "했어요":
+                        st.success("🔥 오늘 운동 완료! 기록을 남겨둘게요.")
+                        st.session_state.last_check_date = today
+                        db.add_exercise_log(user_id, today.isoformat(), True)
+                    elif did_ex_after == "못 했어요":
+                        excuse_post = st.text_input("❓ 왜 못 하셨나요?", key="excuse_post")
+                        if excuse_post:
+                            st.session_state.last_check_date = today
+                            process_excuse_submission(excuse_post, user_id, today_start_time_str, today_duration)
+
+    with tab_history:
+        st.subheader("📊 나의 운동 패턴")
+        st.caption("반복되는 핑계 유형을 기반으로 인사이트를 제공합니다")
+
+        if sleeps:
+            st.write("최근 수면 기록:")
+            for r in sleeps:
+                st.write(f"- {r[1]} → {r[2]} (src: {r[3]})")
+
+        with st.expander("🛌 수면 데이터 / 데모 도구"):
+            col_a, col_b = st.columns(2)
+            with col_a:
+                uploaded = st.file_uploader("수면 CSV 업로드 (start,end)", type=["csv"])
+            if uploaded is not None:
+                parsed = fit.parse_sleep_csv(uploaded)
+                if parsed:
+                    for s in parsed:
+                        db.add_sleep_log(user_id, s["start"], s["end"], source="upload")
+                    st.success(f"{len(parsed)}개의 수면 레코드를 저장했습니다.")
+                else:
+                    st.warning("CSV를 파싱할 수 없거나 형식이 맞지 않습니다.")
+            with col_b:
+                if st.button("샘플 수면 데이터 불러오기"):
+                    sample = fit.generate_mock_sleep(7)
+                    for s in sample:
+                        db.add_sleep_log(user_id, s["start"], s["end"], source="mock")
+                    st.success("샘플 수면데이터 7개가 저장되었습니다.")
+
+                st.divider()
+                st.write("테스트용으로 동일한 유형의 핑계를 과거 날짜에 생성합니다.")
+                demo_excuse_type = st.selectbox("핑계 유형 선택", list(EXCUSE_POLICY.keys()), index=0)
+                demo_count = st.number_input("몇 회 생성할까요?", min_value=1, max_value=20, value=3)
+                demo_span = st.number_input("몇 일 범위에 분산할까요?", min_value=1, max_value=90, value=14)
+                if st.button("데모: 동일 핑계 생성"):
+                    created = insights.seed_repeated_excuses(user_id, demo_excuse_type, int(demo_count), int(demo_span))
+                    st.success(f"{created}개의 시연용 핑계가 생성되었습니다.\n\n💡 팁: 이제 아래 '핑계 제출' 섹션에서 '{demo_excuse_type}' 핑계를 입력하면, DB에 기록된 반복 패턴을 확인할 수 있습니다.")
+
+        st.divider()
+
+        # 탭2: 캘린더 뷰
         from services.calendar_view import render_calendar_view
-        user_id = st.session_state.user.get("id") or db.ensure_user(st.session_state.user.get("name", "unknown"))
         user_name = st.session_state.user.get("name", "사용자")
         plan_days = plan.get("days", [])
         render_calendar_view(user_id, user_name, plan_days)
