@@ -153,8 +153,11 @@ def evaluate_time_excuse(exercise_time_str: str, duration_minutes: int, excuse_t
         return {"valid": None, "reason": "not_time_related"}
 
     try:
-        # 캘린더 이벤트 조회
-        events = list_upcoming_events()
+        # 캘린더 이벤트 조회 (오늘 전체 범위)
+        today_date = date.today()
+        day_start = datetime.combine(today_date, time_obj.min)
+        day_end = datetime.combine(today_date, time_obj.max)
+        events = list_upcoming_events(time_min=day_start, time_max=day_end, max_results=50)
 
         # 운동 시간 파싱
         ex_hour, ex_min = map(int, exercise_time_str.split(':'))
@@ -683,7 +686,7 @@ else:
                     )
 
             else:
-                st.info("오늘을 돌아보고 내일을 준비해볼까요?")
+                st.info("기타 사유는 명확한 데이터 검증이 어려워 강한 개입 없이 사용자의 선택을 존중합니다.")
                 exc_row_id, insight_shown = persist_excuse_and_maybe_show_insight(
                     log_id,
                     excuse_text,
